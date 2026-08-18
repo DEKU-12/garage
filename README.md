@@ -90,11 +90,20 @@ uv run python -m engine.eval.verify_harness django__django-11099
 > pre-pulling with `--platform linux/amd64` and letting the container run under
 > emulation — nothing to configure, but the first pull per repo is a few GB.
 
-Not built yet (week 1 in progress):
+Run a full task with canned responses — no API key, no spend. The scripted
+failures walk the retry loop (bad diff → feedback → retry → fix):
+
+```bash
+uv run python -m engine.cli run-one --task django__django-11099 --model stub
+uv run python -m engine.cli run-one --task django__django-11099 --model stub --stub-failures prose,malformed
+```
+
+A stub run is **not a result** — it reports whatever it was scripted to report,
+and the CLI says so on every run. With a real model:
 
 ```bash
 cp .env.example .env   # add your GROQ_API_KEY
-uv run garage run-one --task django__django-11099
+uv run python -m engine.cli run-one --task django__django-11099 --model openai/gpt-oss-20b
 ```
 
 ## Docs
