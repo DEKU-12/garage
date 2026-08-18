@@ -21,9 +21,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from engine.agents.builder import build_patch
-from engine.agents.scout import build_context_pack, render_pack
+from engine.graph import build_graph
+from engine.state import TaskState, new_state
 from engine.agents.stub import (
+    REJECT_RUNG_3,
+    reviewer_script,
     EMPTY,
     MALFORMED_DIFF,
     PROSE_ONLY,
@@ -62,144 +64,68 @@ def _attempt_dir(run_dir: Path, task_id: str, n: int) -> Path:
 
 
 def run_one(task: Task, cfg: RunConfig, run_dir: Path, stub: StubBackend | None,
-            max_attempts: int, context: str = "") -> dict[str, object]:
-    """One task, up to `max_attempts` builder attempts. Returns its results row.
+            max_attempts: int | None = None, context: str = "") -> dict[str, object]:
+    """One task through the state machine. Returns its results row.
 
     Never raises for a model or patch failure -- those are outcomes, recorded
     and returned. Only a genuinely broken environment escapes (rules.md §3.1).
+
+    Routing, retry caps and gate wiring all live in engine/graph.py; this
+    function only starts the machine and writes down what came out.
     """
     started = time.monotonic()
 
-    # Scout runs ONCE per task, not per attempt: the repo does not change
-    # between attempts, so re-deriving the pack would just burn wall clock.
-    # Gate-off is a real absence of the step, not a branch inside it (FR-10).
-    if cfg.scout and not context:
-        with attempt_worktree(task.repo, task.base_commit, task.task_id,
-                              0, REPO_ROOT / "workspaces") as scout_tree:
-            pack = build_context_pack(task.issue, scout_tree, cfg.context_token_budget)
-            context = render_pack(pack)
-        _write(run_dir / "tasks" / task.task_id / "context_pack.md", context)
-        print(f"  scout: {len(pack)} span(s), ~{len(context) // 4} tokens")
-        for entry in pack:
-            print(f"    {entry.file}:{entry.start}-{entry.end}")
-    elif not cfg.scout:
+    state = new_state(
+        task_id=task.task_id,
+        issue=task.issue,
+        repo=task.repo,
+        base_commit=task.base_commit,
+        fail_to_pass=list(task.fail_to_pass),
+        image=task.image,
+    )
+    if context:
+        state["context"] = context
+
+    if not cfg.scout and not context:
         print("  scout: OFF (builder sees the issue only)")
 
-    prompt_tokens = completion_tokens = 0
-    failure_type = ""
-    feedback: str | None = None
-    solved = False
-    attempt = 0
+    machine = build_graph(cfg, run_dir, stub)
+    # The graph's own recursion guard. Each builder run costs at most four node
+    # visits (builder, tester, reviewer, routing), plus scout and the terminal
+    # node -- generous headroom over the 1+3+1 termination proof.
+    final: TaskState = machine.invoke(
+        state, {"recursion_limit": 4 * cfg.max_builder_runs + 10}
+    )
 
-    for attempt in range(1, max_attempts + 1):
-        adir = _attempt_dir(run_dir, task.task_id, attempt)
-        a_started = time.monotonic()
-        # FR-6 wants timing and token counts per attempt, not just per task.
-        # `finally` writes it on every exit path -- success, continue, break --
-        # so an attempt can never finish without leaving a record.
-        meta: dict[str, object] = {"attempt": attempt, "model": cfg.model_for("builder")}
-        print(f"\n--- attempt {attempt}/{max_attempts} ---")
-
-        try:
-            try:
-                raw, user_msg, usage = build_patch(task.issue, context, cfg, stub, feedback)
-            except ModelCallError as exc:
-                print(f"  model call failed: {exc}")
-                failure_type = "model_error"
-                meta["outcome"] = "model_error"
-                meta["error"] = str(exc)
-                if exc.retryable and attempt < max_attempts:
-                    feedback = (
-                        "Your previous response was rejected by the API: "
-                        f"{exc}. Reply with the diff only."
-                    )
-                    continue
-                break
-            prompt_tokens += usage.prompt_tokens
-            completion_tokens += usage.completion_tokens
-            meta.update(
-                prompt_tokens=usage.prompt_tokens,
-                completion_tokens=usage.completion_tokens,
-                model_latency_ms=usage.latency_ms,
-                finish_reason=usage.finish_reason,
-                response_chars=len(raw),
-            )
-            _write(adir / "prompt_builder.md", user_msg)
-            _write(adir / "response.md", raw)
-            print(f"  builder responded ({len(raw)} chars, {usage.latency_ms}ms)")
-
-            with attempt_worktree(task.repo, task.base_commit, task.task_id,
-                                  attempt, REPO_ROOT / "workspaces") as tree:
-                try:
-                    diff = extract_diff(raw)
-                    if cfg.repair_hunks:
-                        diff, repairs = repair_hunk_headers(diff, tree)
-                        if repairs:
-                            meta["hunk_repairs"] = repairs
-                            print(f"  repaired {len(repairs)} hunk header(s)")
-                    validate_diff(diff, tree)
-                except PatchError as exc:
-                    print(f"  patch rejected: {exc}")
-                    failure_type = "patch_apply_error"
-                    feedback = str(exc)
-                    meta["outcome"] = "patch_rejected"
-                    meta["error"] = str(exc)
-                    continue
-
-                applied = apply_patch(diff, tree)
-                if not applied.applied:
-                    first = applied.stderr.splitlines()[:1]
-                    print(f"  git apply failed: {first}")
-                    failure_type = "patch_apply_error"
-                    feedback = applied.stderr  # git's own words, verbatim
-                    meta["outcome"] = "apply_failed"
-                    meta["error"] = applied.stderr[:500]
-                    continue
-
-                submission = tree_diff(tree)
-                _write(adir / "patch.diff", submission)
-                meta["apply_mode"] = applied.mode
-                meta["patch_lines"] = len(submission.splitlines())
-                print(f"  applied ({applied.mode}), {len(submission.splitlines())} line patch")
-
-            try:
-                result = grade(task.task_id, submission, f"{cfg.run_id}_a{attempt}",
-                               run_dir, image=task.image)
-            except GradingInfraError as exc:
-                print(f"  GRADING INFRA FAILURE: {exc}")
-                failure_type = "crashed"  # never blamed on the model (rules.md §3.1)
-                meta["outcome"] = "grading_infra_error"
-                meta["error"] = str(exc)
-                break
-
-            _write(adir / "test_output.txt", result.log_tail)
-            meta["verdict"] = result.verdict
-            meta["grade_ms"] = result.wall_ms
-            print(f"  tests: {result.verdict} ({result.wall_ms / 1000:.1f}s)")
-
-            if result.resolved:
-                solved = True
-                failure_type = ""
-                meta["outcome"] = "solved"
-                break
-
-            failure_type = "failed_tests"
-            meta["outcome"] = "failed_tests"
-            feedback = (
-                "The patch applied cleanly but the tests still fail:\n\n"
-                f"{result.log_tail[-2000:]}"
-            )
-        finally:
-            meta["wall_ms"] = int((time.monotonic() - a_started) * 1000)
-            _write(adir / "meta.json", json.dumps(meta, indent=2, sort_keys=True))
+    # FR-6: per-attempt timing and token counts, written from the final state
+    # so an attempt can never finish without leaving a record.
+    for attempt in final.get("attempts", []):
+        usage = attempt.get("usage") or {}
+        meta = {
+            "attempt": attempt.get("n"),
+            "model": cfg.model_for("builder"),
+            "outcome": attempt.get("failure") or (
+                "solved" if attempt.get("test_verdict") == "pass" else "failed_tests"
+            ),
+            "patch_applied": attempt.get("patch_applied", False),
+            "apply_mode": attempt.get("apply_mode", ""),
+            "test_verdict": attempt.get("test_verdict"),
+            "review_verdict": attempt.get("review_verdict"),
+            "review_reason": attempt.get("review_reason"),
+            "wall_ms": attempt.get("wall_ms", 0),
+            **{k: usage.get(k) for k in
+               ("prompt_tokens", "completion_tokens", "latency_ms", "finish_reason")},
+        }
+        _write(_attempt_dir(run_dir, task.task_id, attempt["n"]) / "meta.json",
+               json.dumps(meta, indent=2, sort_keys=True))
 
     return {
         "task_id": task.task_id,
-        "solved": solved,
-        "attempts": attempt,
-        "failure_type": failure_type,
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
+        "solved": final.get("status") == "shipped",
+        "attempts": len(final.get("attempts", [])),
+        "failure_type": final.get("failure_type", ""),
+        "prompt_tokens": final.get("prompt_tokens", 0),
+        "completion_tokens": final.get("completion_tokens", 0),
         "wall_ms": int((time.monotonic() - started) * 1000),
         "model": cfg.model_for("builder"),
     }
@@ -230,8 +156,17 @@ def cmd_run_one(args: argparse.Namespace) -> int:
         before = [canned[name] for name in args.stub_failures.split(",") if name]
         if before:
             print(f"scripted failures before the fix: {args.stub_failures}")
+        reviewer_before = [REJECT_RUNG_3] if args.stub_reject else []
+        if reviewer_before:
+            print("scripted simplicity rejection before accept")
         stub = StubBackend(
-            scripts={"builder": builder_script(task.gold_patch, before=before)}
+            scripts={
+                "builder": builder_script(task.gold_patch, before=before),
+                # Without its own script the reviewer would be handed the
+                # builder's cursor and reply with a diff -- parsed as ACCEPT
+                # with a warning. Correct, but it never exercises the gate.
+                "reviewer": reviewer_script(before=reviewer_before),
+            }
         )
 
     print(f"\ntask {task.task_id}  ({task.repo} @ {task.base_commit[:12]})")
@@ -272,6 +207,8 @@ def main(argv: list[str] | None = None) -> int:
     one.add_argument("--max-attempts", type=int, default=None,
                      help="default: max_correctness_retries + 1")
     one.add_argument("--run-id", default=None)
+    one.add_argument("--stub-reject", action="store_true",
+                     help="stub only: reviewer rejects once before accepting")
     one.add_argument("--no-scout", action="store_true",
                      help="builder sees the issue only -- the OFF arm of E2 (FR-10)")
     one.add_argument("--stub-failures", default="",

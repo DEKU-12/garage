@@ -38,6 +38,11 @@ class RunConfig(BaseModel):
     max_correctness_retries: int = 3
     max_simplicity_retries: int = 1
 
+    # FR-12: a token cap needs no price table, so budgets work from day one.
+    # Checked at node entry, never mid-call: a task ends `budget_exceeded`,
+    # which is a clean stop, not a crash.
+    per_task_token_cap: int = 40_000
+
     # Deterministic repair of model hunk-header arithmetic (R3). A flag,
     # not a constant, so its contribution can be measured like any other.
     repair_hunks: bool = True
@@ -71,6 +76,11 @@ class RunConfig(BaseModel):
     reasoning_effort: str = "low"  # "low" | "medium" | "high"
 
     prompt_hashes: dict[str, str] = Field(default_factory=dict)
+
+    @property
+    def max_builder_runs(self) -> int:
+        """The termination proof, as a number: 1 + 3 + 1 = 5 (TAD §3.2)."""
+        return 1 + self.max_correctness_retries + self.max_simplicity_retries
 
     def model_for(self, role: str) -> str:
         """The model backing `role`, defaulting to the stub so nothing spends

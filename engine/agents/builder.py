@@ -15,15 +15,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from engine.agents.base import Usage, call_model
+from engine.agents.base import load_prompt, Usage, call_model
 from engine.agents.stub import StubBackend
 from engine.config import RunConfig
 
-PROMPTS = Path(__file__).resolve().parents[1] / "prompts"
 
 
 def _system_prompt() -> str:
-    return (PROMPTS / "builder.md").read_text()
+    return load_prompt("builder")
 
 
 def build_user_message(issue: str, context: str, feedback: str | None = None) -> str:

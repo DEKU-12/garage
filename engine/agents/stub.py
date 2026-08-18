@@ -34,6 +34,20 @@ diff --git a/does/not/exist.py b/does/not/exist.py
 
 EMPTY = ""
 
+# What real models actually emit: the edit is correct, the hunk header has no
+# line numbers. Keeping this in the stub means the repair path is covered
+# offline -- it was dropped once during a refactor and every test still passed,
+# because the scripted diffs were all well-formed.
+BARE_HUNK = """```diff
+diff --git a/hello.py b/hello.py
+--- a/hello.py
++++ b/hello.py
+@@
+ def greet():
+-    return 'hi'
++    return 'hello'
+```"""
+
 
 @dataclass
 class StubBackend:
@@ -66,3 +80,26 @@ def builder_script(gold_patch: str, before: list[str] | None = None) -> list[str
     which walks the whole correctness-retry loop offline.
     """
     return [*(before or []), f"```diff\n{gold_patch}```"]
+
+
+# --- reviewer scripts -----------------------------------------------------
+
+ACCEPT = "ACCEPT"
+REJECT_RUNG_3 = (
+    "REJECT / rung 3 / The helper re-implements what the standard library "
+    "already provides; call it directly and delete the wrapper."
+)
+OFF_CONTRACT = "Honestly this looks fine to me, ship it."  # -> parse_warning
+
+
+def reviewer_script(before: list[str] | None = None) -> list[str]:
+    """A reviewer script that rejects however you ask, then accepts.
+
+        reviewer_script(before=[REJECT_RUNG_3])
+
+    exercises the simplicity gate: reject -> feedback -> rebuild -> accept,
+    entirely offline. Without an explicit script the reviewer would receive the
+    builder's cursor and reply with a diff, which the parser treats as ACCEPT
+    with a warning -- correct behaviour, but it never tests the gate.
+    """
+    return [*(before or []), ACCEPT]

@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import random
 import time
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
@@ -71,6 +72,18 @@ def _sleep_for(attempt: int) -> float:
     return BACKOFF_BASE_S**attempt * (0.5 + random.random())
 
 
+PROMPTS = Path(__file__).resolve().parents[1] / "prompts"
+
+
+def load_prompt(role: str) -> str:
+    """The system prompt for `role`, read from engine/prompts/<role>.md.
+
+    One loader for every agent: prompts are versioned artifacts whose hashes go
+    into config.json (NFR-1), so exactly one place should know where they live.
+    """
+    return (PROMPTS / f"{role}.md").read_text(encoding="utf-8")
+
+
 def call_model(
     role: str,
     messages: list[dict[str, str]],
@@ -92,12 +105,18 @@ def call_model(
                 "StubBackend was passed to call_model"
             )
         text = stub.next_response(role)
+        # Estimated, not measured -- but zero would make budget caps (FR-12)
+        # impossible to exercise without spending money, and a stub run that
+        # cannot reach a cap cannot test the code that enforces it. Stub runs
+        # are already flagged as non-results, so a rough number is honest here.
+        prompt_chars = sum(len(str(m.get("content", ""))) for m in messages)
         return text, Usage(
             model=STUB_MODEL,
             role=role,
-            prompt_tokens=0,
-            completion_tokens=0,
+            prompt_tokens=prompt_chars // 4,
+            completion_tokens=len(text) // 4,
             latency_ms=int((time.monotonic() - started) * 1000),
+            finish_reason="stop",
         )
 
     last: Exception | None = None

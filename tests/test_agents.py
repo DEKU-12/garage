@@ -51,12 +51,40 @@ def test_builder_script_puts_failures_before_the_fix() -> None:
 
 # --- call path ------------------------------------------------------------
 
-def test_stub_model_returns_scripted_text_and_zero_usage() -> None:
+def test_stub_model_returns_scripted_text_and_estimated_usage() -> None:
+    """Stub usage is ESTIMATED from text length, and that is deliberate.
+
+    Real usage is only ever read from the API's own block and never guessed
+    (rules.md §0.3) -- see test_real_usage_comes_only_from_the_api. But a stub
+    reporting zero tokens can never reach a budget cap, which would leave FR-12
+    untestable without spending money -- exactly the shape rules.md §4.3
+    forbids. Stub runs are flagged non-results and cannot reach a report, so an
+    estimate here costs nothing and buys offline coverage of the cap.
+    """
     stub = StubBackend(scripts={"builder": ["a diff"]})
-    text, usage = call_model("builder", [], stub_cfg(), stub=stub)
+    text, usage = call_model(
+        "builder", [{"role": "user", "content": "x" * 40}], stub_cfg(), stub=stub
+    )
     assert text == "a diff"
     assert usage.model == STUB_MODEL
-    assert usage.total_tokens == 0  # never guessed, only ever read from the API
+    assert usage.prompt_tokens == 10
+    assert usage.completion_tokens == len("a diff") // 4
+
+
+def test_real_usage_comes_only_from_the_api() -> None:
+    """Absent fields count as zero -- never inferred from the text."""
+    from engine.agents.base import _usage_from
+
+    class _Choice:
+        finish_reason = "stop"
+
+    class _Response:
+        usage = None
+        choices = [_Choice()]
+
+    usage = _usage_from(_Response(), "openai/gpt-oss-20b", "builder", 0.0)
+    assert usage.prompt_tokens == 0
+    assert usage.completion_tokens == 0
 
 
 def test_stub_model_without_a_backend_fails_loudly() -> None:

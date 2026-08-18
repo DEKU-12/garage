@@ -12,6 +12,7 @@ dependencies = [
     "openai",         # Groq's OpenAI-compatible client, one wrapper in agents/base.py
     "pydantic>=2",    # RunConfig; validate at the edge, trust internally
     "python-dotenv",  # load_dotenv(override=True), keys stay in .env
+    "langgraph>=1.2.11",
 ]
 
 # Added at their build week, not before:
