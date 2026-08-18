@@ -22,6 +22,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from engine.agents.builder import build_patch
+from engine.agents.scout import build_context_pack, render_pack
 from engine.agents.stub import (
     EMPTY,
     MALFORMED_DIFF,
@@ -68,6 +69,22 @@ def run_one(task: Task, cfg: RunConfig, run_dir: Path, stub: StubBackend | None,
     and returned. Only a genuinely broken environment escapes (rules.md §3.1).
     """
     started = time.monotonic()
+
+    # Scout runs ONCE per task, not per attempt: the repo does not change
+    # between attempts, so re-deriving the pack would just burn wall clock.
+    # Gate-off is a real absence of the step, not a branch inside it (FR-10).
+    if cfg.scout and not context:
+        with attempt_worktree(task.repo, task.base_commit, task.task_id,
+                              0, REPO_ROOT / "workspaces") as scout_tree:
+            pack = build_context_pack(task.issue, scout_tree, cfg.context_token_budget)
+            context = render_pack(pack)
+        _write(run_dir / "tasks" / task.task_id / "context_pack.md", context)
+        print(f"  scout: {len(pack)} span(s), ~{len(context) // 4} tokens")
+        for entry in pack:
+            print(f"    {entry.file}:{entry.start}-{entry.end}")
+    elif not cfg.scout:
+        print("  scout: OFF (builder sees the issue only)")
+
     prompt_tokens = completion_tokens = 0
     failure_type = ""
     feedback: str | None = None
@@ -198,6 +215,7 @@ def cmd_run_one(args: argparse.Namespace) -> int:
         task_ids=[task.task_id],
         model_for_role={r: args.model for r in
                         ("orchestrator", "scout", "builder", "tester", "reviewer", "scribe")},
+        scout=not args.no_scout,
         prompt_hashes=prompt_hashes(PROMPTS),
     )
     cfg.freeze_to(run_dir / "config.json")
@@ -254,6 +272,8 @@ def main(argv: list[str] | None = None) -> int:
     one.add_argument("--max-attempts", type=int, default=None,
                      help="default: max_correctness_retries + 1")
     one.add_argument("--run-id", default=None)
+    one.add_argument("--no-scout", action="store_true",
+                     help="builder sees the issue only -- the OFF arm of E2 (FR-10)")
     one.add_argument("--stub-failures", default="",
                      help="stub only: comma list of failures to inject before "
                           "the fix, from prose,malformed,empty -- exercises the "

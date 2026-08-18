@@ -42,7 +42,11 @@ class RunConfig(BaseModel):
     # not a constant, so its contribution can be measured like any other.
     repair_hunks: bool = True
 
-    context_token_budget: int = 6000
+    # PRD says 6000. That cannot fit: the free tier's 8000 tokens/minute must
+    # hold prompt + context + reserved answer, and max_completion_tokens alone
+    # is 6000. 1500 leaves room for all three. Raise this the moment the
+    # account moves off the free tier -- it is a tier limit, not a design one.
+    context_token_budget: int = 1500
     scout_max_tool_calls: int = 6
 
     # Budgets (FR-12). Hitting one is `budget_exceeded`, never `crashed`.
