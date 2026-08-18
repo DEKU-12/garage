@@ -38,6 +38,10 @@ class RunConfig(BaseModel):
     max_correctness_retries: int = 3
     max_simplicity_retries: int = 1
 
+    # Deterministic repair of model hunk-header arithmetic (R3). A flag,
+    # not a constant, so its contribution can be measured like any other.
+    repair_hunks: bool = True
+
     context_token_budget: int = 6000
     scout_max_tool_calls: int = 6
 

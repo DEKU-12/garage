@@ -114,9 +114,15 @@ def call_model(
                 time.sleep(_sleep_for(attempt))
             continue
         except openai.APIStatusError as exc:
-            # 4xx that isn't rate limiting: the request is wrong. Retrying it
-            # will be wrong three times instead of once.
-            raise ModelCallError(f"{role}/{model}: {exc.status_code} {exc.message}") from exc
+            # A 4xx that is not rate limiting. Re-sending the identical request
+            # is pointless, so we do not retry the CALL -- but some of these
+            # are the model misbehaving (a spontaneous tool call), not our
+            # request being malformed, and a fresh attempt may well succeed.
+            # Auth failures never will.
+            raise ModelCallError(
+                f"{role}/{model}: {exc.status_code} {exc.message}",
+                retryable=exc.status_code not in (401, 403),
+            ) from exc
 
         text = (response.choices[0].message.content or "").strip()
         return text, _usage_from(response, model, role, started)

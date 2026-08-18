@@ -134,3 +134,81 @@ def test_tree_diff_sees_staged_changes(repo: Path) -> None:
 
 def test_tree_diff_is_empty_on_an_untouched_tree(repo: Path) -> None:
     assert tree_diff(repo) == ""
+
+
+# --- hunk header repair (R3) ----------------------------------------------
+
+BARE_HEADER_DIFF = """diff --git a/hello.py b/hello.py
+--- a/hello.py
++++ b/hello.py
+@@
+ def greet():
+-    return 'hi'
++    return 'hello'
+"""
+
+
+def test_bare_header_is_unusable_before_repair(repo: Path) -> None:
+    """Establishes the problem: git rejects a bare @@ outright."""
+    assert not apply_patch(BARE_HEADER_DIFF, repo).applied
+
+
+def test_repair_computes_the_header_and_the_patch_then_applies(repo: Path) -> None:
+    from engine.repo.patch import repair_hunk_headers
+
+    fixed, notes = repair_hunk_headers(BARE_HEADER_DIFF, repo)
+    assert "@@ -1,2 +1,2 @@" in fixed
+    assert notes and "hello.py" in notes[0]
+    assert apply_patch(fixed, repo).applied
+    assert "hello" in (repo / "hello.py").read_text()
+
+
+def test_repair_never_changes_which_lines_are_added_or_removed(repo: Path) -> None:
+    """Repair fixes arithmetic only -- it must not touch the actual edit."""
+    from engine.repo.patch import repair_hunk_headers
+
+    fixed, _ = repair_hunk_headers(BARE_HEADER_DIFF, repo)
+    edits = lambda d: [l for l in d.splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---"))]
+    assert edits(fixed) == edits(BARE_HEADER_DIFF)
+
+
+def test_repair_distinguishes_near_identical_hunks(tmp_path: Path) -> None:
+    """Two blocks differing only in name: a fresh search maps both onto the first."""
+    (tmp_path / "two.py").write_text(
+        "class A:\n    regex = 'x'\n    code = 1\n\n"
+        "class B:\n    regex = 'x'\n    code = 2\n"
+    )
+    run = lambda *a: subprocess.run(["git", *a], cwd=tmp_path, capture_output=True, check=True)
+    run("init", "-q", "-b", "main")
+    run("-c", "user.name=t", "-c", "user.email=t@t", "add", "two.py")
+    run("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "i")
+
+    from engine.repo.patch import repair_hunk_headers
+
+    diff = """diff --git a/two.py b/two.py
+--- a/two.py
++++ b/two.py
+@@
+ class A:
+-    regex = 'x'
++    regex = 'y'
+     code = 1
+@@
+ class B:
+-    regex = 'x'
++    regex = 'y'
+     code = 2
+"""
+    fixed, _ = repair_hunk_headers(diff, tmp_path)
+    headers = [l for l in fixed.splitlines() if l.startswith("@@")]
+    assert headers == ["@@ -1,3 +1,3 @@", "@@ -5,3 +5,3 @@"], headers
+    assert apply_patch(fixed, tmp_path).applied
+
+
+def test_repair_rejects_invented_context_with_actionable_feedback(repo: Path) -> None:
+    """A model that never saw the file writes context that isn't there."""
+    from engine.repo.patch import repair_hunk_headers
+
+    invented = BARE_HEADER_DIFF.replace("def greet():", "def some_other_function():")
+    with pytest.raises(PatchError, match="do not appear in the file"):
+        repair_hunk_headers(invented, repo)

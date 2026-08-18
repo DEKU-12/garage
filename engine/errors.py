@@ -11,7 +11,17 @@ class GarageError(Exception):
 
 
 class ModelCallError(GarageError):
-    """A model call failed after its retry budget was exhausted."""
+    """A model call failed after its retry budget was exhausted.
+
+    `retryable` says whether a fresh ATTEMPT could plausibly succeed. A model
+    that emitted a spontaneous tool call is a bad generation -- the next one may
+    be fine, so the task keeps its remaining attempts. A missing key or a
+    rejected credential will fail identically every time, so the task stops.
+    """
+
+    def __init__(self, message: str, retryable: bool = False) -> None:
+        super().__init__(message)
+        self.retryable = retryable
 
 
 class PatchError(GarageError):
