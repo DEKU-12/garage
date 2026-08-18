@@ -48,6 +48,7 @@ class Usage:
     prompt_tokens: int
     completion_tokens: int
     latency_ms: int
+    finish_reason: str = ""  # "stop" | "length" | ... -- makes truncation visible
 
     @property
     def total_tokens(self) -> int:
@@ -102,11 +103,18 @@ def call_model(
     last: Exception | None = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
+            extra: dict[str, Any] = {}
+            if "gpt-oss" in model:
+                # Only the reasoning models accept this; sending it to others
+                # is a 400.
+                extra["reasoning_effort"] = cfg.reasoning_effort
             response = _client().chat.completions.create(
                 model=model,
                 messages=messages,  # type: ignore[arg-type]
                 temperature=cfg.temperature,
                 seed=cfg.seed,
+                max_completion_tokens=cfg.max_completion_tokens,
+                **extra,
             )
         except TRANSIENT as exc:
             last = exc
@@ -121,11 +129,32 @@ def call_model(
             # Auth failures never will.
             raise ModelCallError(
                 f"{role}/{model}: {exc.status_code} {exc.message}",
-                retryable=exc.status_code not in (401, 403),
+                # 413 is "request too large": the identical request will
+                # always be too large, so a fresh attempt is wasted budget.
+                # Auth failures never recover either.
+                retryable=exc.status_code not in (401, 403, 413),
             ) from exc
 
-        text = (response.choices[0].message.content or "").strip()
-        return text, _usage_from(response, model, role, started)
+        choice = response.choices[0]
+        text = (choice.message.content or "").strip()
+        usage = _usage_from(response, model, role, started)
+
+        if not text and usage.finish_reason == "length":
+            # A reasoning model that thought until it hit the cap. Retrying the
+            # identical request reproduces it exactly, so failing fast with the
+            # real cause beats burning the correctness budget on four attempts
+            # that all report "empty response" -- which would land in the
+            # results as the model being unable to fix the bug (FR-4), when in
+            # fact it never got to answer.
+            raise ModelCallError(
+                f"{role}/{model}: response truncated at "
+                f"{usage.completion_tokens} completion tokens with no content "
+                f"-- all of it went to reasoning. Raise max_completion_tokens "
+                f"(now {cfg.max_completion_tokens}) or lower reasoning_effort "
+                f"(now {cfg.reasoning_effort!r}).",
+                retryable=False,
+            )
+        return text, usage
 
     raise ModelCallError(
         f"{role}/{model}: failed after {MAX_ATTEMPTS} attempts: {last}"
@@ -141,4 +170,5 @@ def _usage_from(response: Any, model: str, role: str, started: float) -> Usage:
         prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
         completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
         latency_ms=int((time.monotonic() - started) * 1000),
+        finish_reason=getattr(response.choices[0], "finish_reason", "") or "",
     )

@@ -104,6 +104,7 @@ def run_one(task: Task, cfg: RunConfig, run_dir: Path, stub: StubBackend | None,
                 prompt_tokens=usage.prompt_tokens,
                 completion_tokens=usage.completion_tokens,
                 model_latency_ms=usage.latency_ms,
+                finish_reason=usage.finish_reason,
                 response_chars=len(raw),
             )
             _write(adir / "prompt_builder.md", user_msg)

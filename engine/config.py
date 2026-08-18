@@ -52,6 +52,20 @@ class RunConfig(BaseModel):
     temperature: float = 0.2
     seed: int | None = 7
 
+    # Reasoning models (openai/gpt-oss-*) spend completion tokens THINKING
+    # before they emit any content. Groq's default cap is 2048, which the
+    # 20b model exhausts on reasoning alone for a real SWE-bench issue --
+    # returning empty content while reporting a full 2048 completion tokens.
+    # An explicit budget plus low effort keeps the answer inside the cap:
+    # we want a diff, not an essay.
+    # Groq's free tier caps TOKENS PER MINUTE at 8000 for gpt-oss-20b, and it
+    # counts max_completion_tokens toward the request size -- so
+    # prompt + max_completion_tokens must stay under 8000 or every call 413s
+    # before the model sees it. 6000 leaves ~2000 for prompt + context, which
+    # also caps context_token_budget on this tier (PRD's 6000 will not fit).
+    max_completion_tokens: int = 6000
+    reasoning_effort: str = "low"  # "low" | "medium" | "high"
+
     prompt_hashes: dict[str, str] = Field(default_factory=dict)
 
     def model_for(self, role: str) -> str:
