@@ -1,8 +1,31 @@
 """The project's custom exceptions, all in one module (rules.md §3.2).
 
-    ModelCallError, PatchError, GradingInfraError, BudgetExceeded
-
 Every caught exception either becomes an event + status, or is re-raised.
-Silent swallowing is forbidden. Messages carry context (task_id, attempt,
+Silent swallowing is forbidden. Messages must carry context (task_id, attempt,
 agent) -- never a bare "apply failed".
 """
+
+
+class GarageError(Exception):
+    """Base for every error this engine raises deliberately."""
+
+
+class ModelCallError(GarageError):
+    """A model call failed after its retry budget was exhausted."""
+
+
+class PatchError(GarageError):
+    """A model diff could not be extracted, validated, or applied."""
+
+
+class GradingInfraError(GarageError):
+    """The Docker harness itself failed -- image pull, container, timeout.
+
+    Never conflate this with a failing test. The task's status becomes
+    `crashed`, not `failed_tests`: infrastructure trouble is not the model's
+    fault (rules.md §3.1).
+    """
+
+
+class BudgetExceeded(GarageError):
+    """A per-task or per-run cap was hit; the task ends gracefully."""

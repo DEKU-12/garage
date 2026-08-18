@@ -76,14 +76,25 @@ ripgrep.
 ```bash
 git clone https://github.com/DEKU-12/garage && cd garage
 uv sync
-cp .env.example .env   # add your GROQ_API_KEY
-uv run garage run-one --task django__django-11099
 ```
 
-No API key? Everything runs against canned responses:
+Verify the grading harness before anything else — it grades a task's own gold
+patch (must pass) and an empty patch (must fail). No API key, no model call, $0:
 
 ```bash
-uv run garage run-batch --model stub
+uv run python -m engine.eval.verify_harness django__django-11099
+```
+
+> **Apple Silicon:** SWE-bench publishes `x86_64` images only, so Docker's pull
+> fails with `no matching manifest for linux/arm64`. The grader handles this by
+> pre-pulling with `--platform linux/amd64` and letting the container run under
+> emulation — nothing to configure, but the first pull per repo is a few GB.
+
+Not built yet (week 1 in progress):
+
+```bash
+cp .env.example .env   # add your GROQ_API_KEY
+uv run garage run-one --task django__django-11099
 ```
 
 ## Docs
