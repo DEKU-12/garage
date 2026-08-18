@@ -119,6 +119,22 @@ def call_model(
             finish_reason="stop",
         )
 
+    # Providers count the RESERVED answer against the per-minute ceiling, so
+    # prompt + max_completion_tokens must fit under it or the request 413s
+    # before the model reads a word. Shrink the reservation to whatever room
+    # the prompt left rather than sending a request we know will be refused.
+    prompt_estimate = sum(len(str(m.get("content", ""))) for m in messages) // 4
+    room = cfg.request_token_ceiling - prompt_estimate - cfg.request_token_margin
+    max_completion = min(cfg.max_completion_tokens, room)
+    if max_completion < cfg.min_completion_tokens:
+        raise ModelCallError(
+            f"{role}/{model}: prompt is ~{prompt_estimate} tokens, leaving "
+            f"{room} of the {cfg.request_token_ceiling} ceiling for an answer "
+            f"-- below the {cfg.min_completion_tokens} floor. Shrink "
+            f"context_token_budget or raise request_token_ceiling.",
+            retryable=False,
+        )
+
     last: Exception | None = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
@@ -132,7 +148,7 @@ def call_model(
                 messages=messages,  # type: ignore[arg-type]
                 temperature=cfg.temperature,
                 seed=cfg.seed,
-                max_completion_tokens=cfg.max_completion_tokens,
+                max_completion_tokens=max_completion,
                 **extra,
             )
         except TRANSIENT as exc:

@@ -73,6 +73,16 @@ class RunConfig(BaseModel):
     # before the model sees it. 6000 leaves ~2000 for prompt + context, which
     # also caps context_token_budget on this tier (PRD's 6000 will not fit).
     max_completion_tokens: int = 6000
+
+    # The provider's per-minute ceiling for ONE request: prompt + reserved
+    # answer must both fit under it. Groq's free tier is 8000 for gpt-oss-20b.
+    # Everything else adapts to this number, so moving tiers is one edit.
+    request_token_ceiling: int = 8000
+    # Never squeeze the answer below this -- a reasoning model given less has
+    # no room to emit a diff after thinking, which looks like a model failure
+    # and is not one.
+    min_completion_tokens: int = 1500
+    request_token_margin: int = 400  # headroom for tokeniser disagreement
     reasoning_effort: str = "low"  # "low" | "medium" | "high"
 
     prompt_hashes: dict[str, str] = Field(default_factory=dict)
