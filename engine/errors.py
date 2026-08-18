@@ -27,5 +27,13 @@ class GradingInfraError(GarageError):
     """
 
 
+class WorkspaceError(GarageError):
+    """A clone, fetch, or worktree operation failed.
+
+    Infrastructure, like GradingInfraError: the model never sees a checkout,
+    so it cannot be at fault for one that failed to materialize.
+    """
+
+
 class BudgetExceeded(GarageError):
     """A per-task or per-run cap was hit; the task ends gracefully."""
