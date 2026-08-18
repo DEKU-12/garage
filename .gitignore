@@ -1,0 +1,28 @@
+# Secrets -- never, under any circumstance (rules.md §4.1.6)
+.env
+.env.*
+!.env.example
+
+# Run artifacts and repo checkouts
+runs/
+workspaces/
+
+# Generated results outside experiments/ -- experiment results ARE committed,
+# they are the deliverable (rules.md §4.1.6)
+/results.csv
+/ledger.csv
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+
+# macOS / IDE
+.DS_Store
+.idea/

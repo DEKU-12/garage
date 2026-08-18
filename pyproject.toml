@@ -1,0 +1,30 @@
+[project]
+name = "garage"
+version = "0.1.0"
+description = "Multi-agent coding system with eval gates and visual tracing"
+readme = "README.md"
+requires-python = "==3.12.*"
+license = { text = "MIT" }
+
+# Every dependency needs a one-line justification (rules.md §2.2).
+dependencies = [
+    "swebench",       # official task loading AND Docker grading (ADR-3)
+    "openai",         # Groq's OpenAI-compatible client, one wrapper in agents/base.py
+    "pydantic>=2",    # RunConfig; validate at the edge, trust internally
+    "python-dotenv",  # load_dotenv(override=True), keys stay in .env
+]
+
+# Added at their build week, not before:
+#   week 2 -> langgraph, langchain-core   (graph.py, ADR-2)
+#   week 2 -> pandas                      (report/ ONLY -- the engine never needs it)
+#   week 3 -> fastapi, uvicorn            (server/)
+#   P1     -> chromadb                    (must earn its place via E2/M4)
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.uv]
+package = false
