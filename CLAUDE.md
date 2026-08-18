@@ -41,6 +41,17 @@ server (reads the filesystem, never imports the engine) · `web/` React + Pixi
 · `experiments/` committed configs + result CSVs · `runs/`, `workspaces/`
 gitignored. Full map: TAD.md §2. Visual tokens: DESIGN.md.
 
+## At the end of every week
+
+Add a section to `docs/JOURNAL.md` — but only once that week's exit criterion
+is genuinely met. Plain English, no jargon, written for someone who does not
+know the codebase. Every bug gets four parts: what it looked like, what was
+really wrong, how it was fixed, and why it mattered. Include the alternatives
+that were rejected and why. Numbers come from real runs (rules.md §0.3).
+
+Bugs that *looked* like model failures but were ours belong there especially —
+week 1 had four, and they are the most useful thing in the file.
+
 ## Definition of done (rules.md §6)
 
 Runs under the stub model without network · failure modes map to the boundary

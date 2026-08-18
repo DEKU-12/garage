@@ -114,6 +114,7 @@ uv run python -m engine.cli run-one --task django__django-11099 --model openai/g
 | [TAD.md](TAD.md) | How it's shaped — architecture, event schema, 10 ADRs |
 | [rules.md](rules.md) | The contract every contributor and AI assistant follows |
 | [DESIGN.md](DESIGN.md) | Visual design system — tokens, the garage scene, the stamp |
+| [docs/JOURNAL.md](docs/JOURNAL.md) | Plain-English build log: what shipped each week, what broke, why |
 
 ## License
 
