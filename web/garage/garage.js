@@ -1,3 +1,5 @@
+import { MockSource, LiveSource } from "./source.js";
+
 /* The garage scene (DESIGN.md §4, FR-21..FR-25).
  *
  * A PURE VIEW of the event log. Nothing here queries the engine; there is no
@@ -52,6 +54,26 @@ const STATIONS = {
 const COUCH   = { x:150, y:474 };
 const CAR_HOME = { x:470, y:322 };            // the lift, dead centre
 const DOOR     = { x:906, y:250 };            // ship out, through the right wall
+
+/* Where a mechanic stands to work ON the car. The car never moves to them --
+ * it is the job, parked on the lift, and they come to it. Each slot is on the
+ * side the mechanic's own workstation is on, so nobody crosses the floor
+ * diagonally and no two walking paths overlap. */
+const BAY = {
+  orchestrator: { x:360, y:288 },   // whiteboard is top-left
+  scribe:       { x:360, y:356 },   // side desk is left
+  scout:        { x:470, y:246 },   // filing boxes are top-middle
+  builder:      { x:586, y:288 },   // build desk is top-right
+  tester:       { x:586, y:356 },   // test bench is bottom-right
+  reviewer:     { x:470, y:400 },   // workbench is bottom-middle
+};
+
+/* The garage speaks names; the scene's internals speak the engine's role ids,
+ * because STATIONS, CHARS and the artifact panel all key off them. One map,
+ * one direction. */
+const ROLE_OF = { dholu:"orchestrator", bheem:"scout", kalia:"builder",
+                  raju:"tester", chutki:"reviewer", bholu:"scribe" };
+const roleOf = w => ROLE_OF[w] || w;
 
 /* Idle mechanics sit by the couch in two rows of three. At 14px apart their
  * name tags -- which DESIGN §4.3 requires always-on, since nobody can guess
@@ -332,6 +354,7 @@ function makeAvatar(name) {
   if (ch.prop === "clipboard") pixelRect(g, w / 2 + 1, top + 15, 6, 8, T.parchment);
   if (ch.prop === "none") pixelRect(g, -w / 2, top + 10, w, 3, 0x3E6038); // Bheem's collar
   c.addChild(g);
+  c.body = g;            // bobbed by the animation modes; the tag must not move
 
   // Role ids had to be truncated to 6 chars to stop the couch tags colliding.
   // The crew names are all <=6 already, so DESIGN §4.3's always-visible tag
@@ -373,10 +396,20 @@ function makeBubble(name) {
 
 /* --------------------------------------------------------------- motion */
 
-function walkTo(name, x, y) {
+/* Three states, and the walk carries what to do on arrival. Without that the
+ * scene would have to remember "who was heading where to do what", which is
+ * exactly the sort of bookkeeping that drifts out of step with the events. */
+function walkTo(name, x, y, thenMode = "idle") {
   const a = avatars[name];
   a.target = { x, y };
-  if (quiet()) { a.x = x; a.y = y; a.target = null; }   // §6 / the fold
+  a.mode = "walk";
+  a.then = thenMode;
+  if (quiet()) { a.x = x; a.y = y; a.target = null; a.mode = thenMode; }
+}
+
+function sendHome(role) {
+  const st = STATIONS[role];
+  if (st) walkTo(role, st.x, st.y, "idle");
 }
 
 function driveTo(x, y) {
@@ -445,69 +478,74 @@ function setWorkLamp(name) {                     // §2.2: singular --work glow
 
 /* -------------------------------------------------------------- reducer */
 
-const S = { task:"—", attempt:"—", tests:[], review:[], spend:0,
+const S = { task:"—", job:"—", attempt:"—", tests:[], review:[], spend:0,
             shipped:0, failed:0, retries:0, active:null };
 
+/* The scene reads ONE event shape and knows nothing about where it came from
+ * (see source.js). Everything below is a function of { worker, action, job,
+ * status, result } -- swap the mock feed for a WebSocket and not a line here
+ * changes. */
 function applyToScene(e) {
-  const p = e.payload || {};
-  switch (e.type) {
-    case "task_started":
-      S.task = e.task_id; S.attempt = "—"; S.tests = []; S.review = []; S.retries = 0;
-      chalk.text = (e.task_id || "").replace(/__/g, " ");
+  if (!e || e.error || e.meta) return;
+  const role = e.worker ? roleOf(e.worker) : null;
+
+  switch (e.status) {
+    case "job_start":
+      // a new file rolls in and parks on the lift, where it stays
+      Object.assign(S, { job: e.job || "—", task: e.job || "—", attempt: "—",
+                         tests: [], review: [], retries: 0, active: null });
+      chalk.text = String(e.job || "").replace(/__/g, " ");
       tally.text = "";
-      car.x = 860; car.y = CAR_HOME.y; car.exiting = false;          // rolls in through the door
+      car.x = 860; car.y = CAR_HOME.y; car.exiting = false;
       driveTo(CAR_HOME.x, CAR_HOME.y);
+      setWorkLamp(null);
       if (!quiet()) { dimmer.alpha = .1; setTimeout(() => dimmer.alpha = 0, MICRO_MS); }
       break;
-    case "agent_activated": {
-      const s = STATIONS[e.agent];
-      if (s) {
-        if (S.active && S.active !== e.agent) {  // the last one heads home now
-          const seat = couchSeat(AGENTS.indexOf(S.active));
-          walkTo(S.active, seat.x, seat.y);
+
+    case "start": {
+      if (!role) break;
+      // only ever one at a time: whoever was working goes back to their bench
+      if (S.active && S.active !== role) sendHome(S.active);
+      S.active = role;
+      const bay = BAY[role];
+      walkTo(role, bay.x, bay.y, "work");
+      setWorkLamp(role);                 // amber lamp, glow and popup, singular
+      break;
+    }
+
+    case "result": {
+      if (e.result) {
+        const gate = role === "reviewer" ? S.review : S.tests;
+        gate.push(e.result);
+        slamStamp(verdictWord({ verdict: e.result,
+                                gate: role === "reviewer" ? "review" : "tests" }),
+                  ["pass", "accept"].includes(e.result));
+        if (!["pass", "accept"].includes(e.result)) {
+          S.retries++;
+          tally.text = "|".repeat(S.retries).replace(/(\|{5})/g, "$1 ");
+          throwPaper(role, "builder", T.fail);   // it goes back to Kalia
         }
-        walkTo(e.agent, s.x, s.y); setWorkLamp(e.agent); S.active = e.agent;
-        driveTo(s.car.x, s.car.y);              // the job follows the mechanic
       }
-      if (p.attempt) S.attempt = p.attempt;
       break;
     }
-    case "agent_done":
-      break;                                     // holds the post; see above
-    case "handoff":       throwPaper(e.agent, p.to); break;
-    case "context_pack_ready": throwPaper("scout", "builder"); break;
-    case "patch_produced":     throwPaper("builder", "tester"); break;
-    case "patch_apply_error":  throwPaper("builder", "builder", T.fail); break;
-    case "tests_run":     needle.sweepUntil = performance.now() + 600; break;
-    case "gate_verdict": {
-      const ok = p.verdict === "pass" || p.verdict === "accept";
-      (p.gate === "tests" ? S.tests : S.review).push(p.verdict);
-      slamStamp(verdictWord(p), ok);
-      if (!ok) throwPaper("tester", "builder", T.fail);
+
+    case "done":
+      if (!role) break;
+      sendHome(role);
+      if (S.active === role) { S.active = null; setWorkLamp(null); }
       break;
-    }
-    case "retry":
-      S.retries++;
-      tally.text = "|".repeat(S.retries).replace(/(\|{5})/g, "$1 ");
+
+    case "job_end":
+      if (e.action === "ship") {
+        S.shipped++; driveTo(DOOR.x, DOOR.y); car.exiting = true;
+        neon.tint = T.pass; setTimeout(() => neon.tint = 0xFFFFFF, 500);
+      } else {
+        S.failed++; driveTo(834, 452);          // parked by the bin
+        chalk.text += "\n\u2717 " + (e.result || "failed");
+      }
+      AGENTS.forEach(sendHome);
+      S.active = null; setWorkLamp(null);
       break;
-    case "shipped":
-      S.shipped++; driveTo(DOOR.x, DOOR.y);     // out through the door
-      car.exiting = true;
-      neon.tint = T.pass; setTimeout(() => neon.tint = 0xFFFFFF, 500);
-      break;
-    case "task_failed":
-      S.failed++; chalk.text += "\n✗ " + (p.reason || "failed");
-      driveTo(834, 452);                        // parked by the bin
-      break;
-    case "budget_exceeded":
-      dimmer.alpha = .6; break;                  // the lamp physically dims (§4.4)
-    case "cost_tick":
-      if (typeof p.usd === "number") S.spend = p.usd; break;
-    case "run_finished":
-      AGENTS.forEach((n, i) => { const st = couchSeat(i); walkTo(n, st.x, st.y); });
-      setWorkLamp(null); S.active = null;
-      break;
-    // unknown types: ignored on purpose (schema v:1 forward compatibility)
   }
 }
 
@@ -528,15 +566,26 @@ function tick(ticker) {
   const dt = ticker.deltaMS / 1000;
   if (now < freezeUntil) return;                 // the world waits for the gate
 
-  for (const [name, a] of Object.entries(avatars)) {
-    const walking = !!a.target;
+  AGENTS.forEach((name, i) => {
+    const a = avatars[name];
     moveToward(a, WALK_SPEED, dt);
-    // a 1px bob while walking. Cheap, and it is the difference between a
-    // sprite moving and a person walking.
-    a.bob = walking && !REDUCED ? (Math.floor(now / 110) % 2) : 0;
+    if (!a.target && a.mode === "walk") a.mode = a.then || "idle";
+
+    // Three animations, all one pixel of vertical bob at different speeds.
+    // Cheap, and it is the whole difference between a sprite sitting on the
+    // floor and a person standing at a bench doing something.
+    if (a.body) {
+      let off = 0;
+      if (!REDUCED) {
+        if (a.mode === "walk") off = -(Math.floor(now / 110) % 2);
+        else if (a.mode === "work") off = -(Math.floor(now / 150) % 2) * 2;
+        else off = Math.sin(now / 900 + i * 1.7) > 0.86 ? -1 : 0;  // idle breath
+      }
+      a.body.y = off;
+    }
     const b = bubbles[name];
     if (b) { b.x = a.x; b.y = a.y - CHARS[name].tall - 24; }
-  }
+  });
   moveToward(car, CAR_SPEED, dt);
   if (car.exiting && !car.target) { car.visible = false; car.exiting = false; }
 
@@ -570,6 +619,7 @@ function tick(ticker) {
   });
 
   needle.clear();
+  if (S.active === "tester") needle.sweepUntil = now + 200;
   if (needle.sweepUntil && now < needle.sweepUntil) {
     const a = -Math.PI * .75 + Math.PI * .5 * (1 + Math.sin(now / 90));
     needle.moveTo(609, 372).lineTo(609 + Math.cos(a) * 20, 372 + Math.sin(a) * 20)
@@ -592,7 +642,7 @@ const stampGlyph = v => v === "pass" || v === "accept"
   ? '<span class="no">✗</span>' : "·";
 
 const hex = n => "#" + n.toString(16).padStart(6, "0");
-const tms = e => Date.parse(e.ts || 0) || 0;
+const tms = e => (typeof e.ts === "number" ? e.ts : Date.parse(e.ts || 0)) || 0;
 
 /* ------------------------------------------------------------ the replay
  *
@@ -620,8 +670,11 @@ const S0 = () => ({ task:"—", attempt:"—", tests:[], review:[], spend:0,
 function resetScene() {
   for (const c of [...layers.fx.children]) c.destroy();
   flying.length = 0;
-  AGENTS.forEach((n, i) => { const st = couchSeat(i);
-    avatars[n].x = st.x; avatars[n].y = st.y; avatars[n].target = null; });
+  AGENTS.forEach(n => {                    // home is your own workstation
+    const st = STATIONS[n];
+    avatars[n].x = st.x; avatars[n].y = st.y;
+    avatars[n].target = null; avatars[n].mode = "idle";
+  });
   setWorkLamp(null);
   car.visible = false; car.target = null; car.exiting = false;
   car.x = CAR_HOME.x; car.y = CAR_HOME.y;
@@ -661,8 +714,10 @@ function finishFold(t) {
   // landing exactly on a verdict should still show its stamp -- that is the
   // whole point of clicking a red notch
   const last = LOG[cursor - 1];
-  if (last && last.type === "gate_verdict") {
-    slamStamp(verdictWord(last.payload), isGreen(last));
+  if (last && last.result) {
+    slamStamp(verdictWord({ verdict: last.result,
+                            gate: roleOf(last.worker) === "reviewer"
+                                  ? "review" : "tests" }), isGreen(last));
   }
   paintHud(); drawTape(); paintReadout();
 }
@@ -687,7 +742,7 @@ function setLive(on) {
   $("golive").classList.toggle("on", on);
   neon.text = on ? "THE GARAGE" : "REPLAY";      // scene and chrome agree (§5.2)
   neon.style.fill = on ? T.warm : T.tan;
-  $("dot").classList.toggle("live", on && !!ws);
+  $("dot").classList.toggle("live", on && !!source);
 }
 
 /* ------------------------------------------------------------------ tape */
@@ -713,8 +768,7 @@ function drawTape() {
   // cumulative spend (FR-29)
   let usd = 0, maxUsd = 0;
   const pts = LOG.map(e => {
-    if (e.type === "cost_tick" && typeof (e.payload || {}).usd === "number")
-      usd = e.payload.usd;
+    if (typeof e.usd === "number") usd = e.usd;
     maxUsd = Math.max(maxUsd, usd);
     return [X(tms(e)), usd];
   });
@@ -738,7 +792,7 @@ function drawTape() {
   // Draw greens first so a red sharing the same pixel is the one you can see.
   // Two verdicts 4ms apart are one pixel; hiding the failure under the pass
   // would make the tape lie about where the trouble is.
-  const notches = LOG.filter(e => NOTCH_TYPES.includes(e.type));
+  const notches = LOG.filter(isNotch);
   [...notches].sort((a, b) => isRed(a) - isRed(b)).forEach(e => {
     ctx.fillStyle = notchColour(e);
     ctx.fillRect(Math.round(X(tms(e))) - 1, 3, 3, h - 14);
@@ -768,22 +822,19 @@ function tapeTimeAt(clientX) {
  * a red one to jump to the failure" -- so if a failure shares a pixel with a
  * pass, the failure is what you asked for. Ties beyond that go to the latest,
  * so you land on the cluster's outcome rather than its first step. */
-const NOTCH_TYPES = ["gate_verdict", "shipped", "task_failed"];
-const isRed = e => e.type === "task_failed" ||
-  (e.type === "gate_verdict" && ["fail", "reject"].includes(e.payload.verdict));
+const isNotch = e => !!e.result;          // verdicts and job outcomes only
+const isRed = e => ["fail", "reject"].includes(e.result);
 /* Repo mode adds a third verdict: "unverified" -- no regressions, but nothing
  * proving the change did anything. It is neither a pass nor a failure, and
  * drawing it green would make the tape claim a fix that was never shown. */
-const isGreen = e => e.type === "shipped" ||
-  (e.type === "gate_verdict" && ["pass", "accept"].includes(e.payload.verdict));
+const isGreen = e => ["pass", "accept"].includes(e.result);
 const notchColour = e => isRed(e) ? "#D95A5A" : isGreen(e) ? "#46B46A" : "#F0B24B";
 
 function snapToNotch(t) {
   const [t0, t1] = runSpan();
   const w = Math.max(40, $("tape").clientWidth - 4);
   const tol = ((t1 - t0) / w) * 5;               // 5px of slack
-  const near = LOG.filter(e => NOTCH_TYPES.includes(e.type) &&
-                               Math.abs(tms(e) - t) <= tol);
+  const near = LOG.filter(e => isNotch(e) && Math.abs(tms(e) - t) <= tol);
   if (!near.length) return null;
   const reds = near.filter(isRed);
   const pool = reds.length ? reds : near;
@@ -795,7 +846,9 @@ function paintReadout() {
   const [t0, t1] = runSpan();
   const at = LOG[Math.max(0, cursor - 1)];
   $("count").textContent = `${cursor} / ${LOG.length}`;
-  $("stamp").textContent = at ? (at.ts || "").slice(11, 19) : "--:--:--";
+  // ts is a number now (the scene shape), not an ISO string off the wire
+  $("stamp").textContent = at ? new Date(tms(at)).toTimeString().slice(0, 8)
+                              : "--:--:--";
   const secs = Math.round((Math.min(clock, t1) - t0) / 1000);
   $("elapsed").textContent = `+${String(Math.floor(secs / 60)).padStart(2,"0")}:${String(secs % 60).padStart(2,"0")}`;
 }
@@ -820,8 +873,9 @@ function agentAt(pt) {
   return best && best.k;
 }
 
-function lastEventFor(k) {
-  for (let i = cursor - 1; i >= 0; i--) if (LOG[i].agent === k) return LOG[i];
+function lastEventFor(role) {
+  for (let i = cursor - 1; i >= 0; i--)
+    if (LOG[i].worker && roleOf(LOG[i].worker) === role) return LOG[i];
   return null;
 }
 
@@ -831,13 +885,11 @@ function wireHover() {
     const k = agentAt(stagePoint(ev));
     if (!k) { tip.classList.remove("on"); app.canvas.style.cursor = ""; return; }
     const e = lastEventFor(k);
-    const kv = e ? Object.entries(e.payload || {})
-      .filter(([n]) => n !== "artifact")
-      .slice(0, 3).map(([n, v]) => `${n}=${v}`).join(" ") : "";
+    const kv = e ? [e.action, e.status, e.result].filter(Boolean).join(" · ") : "";
     tip.innerHTML =
       `<b>${shown(k)}</b> <span class="tr">${CHARS[k].role}</span>` +
       `<div class="td">${ROLES[k]}</div>` +
-      (e ? `<div class="te">${e.type}${kv ? " · " + kv : ""}</div>` +
+      (e ? `<div class="te">${kv || "waiting"}</div>` +
            `<div class="tl">click to see what it wrote &rarr;</div>`
          : `<div class="te">nothing yet at this point in the run</div>`);
     tip.classList.add("on");
@@ -858,13 +910,18 @@ function wireHover() {
 
 /* Payloads carry pointers, never blobs (ADR-5), so the diff or the test log is
  * fetched only when someone actually asks to see it. */
-async function showArtifact(ev) {
+async function showArtifact(scene) {
+  // The scene never needs the backend's payload; the panel does. Carrying the
+  // untranslated event on `raw` is what keeps that true both ways.
+  const ev = scene.raw || scene;
   const path = (ev.payload || {}).artifact;
   const box = $("art"), body = $("artbody");
-  $("arttitle").textContent = `${shown(ev.agent)} · ${ev.type}` +
-    (ev.payload.attempt ? ` · attempt ${ev.payload.attempt}` : "");
+  $("arttitle").textContent = scene.worker
+    ? `${shown(roleOf(scene.worker))} · ${scene.action || scene.status}`
+    : `${scene.action || scene.status}`;
   box.classList.add("open");
-  const kv = Object.entries(ev.payload || {})
+  const kv = Object.entries(ev.payload || scene)
+    .filter(([k]) => k !== "raw")
     .map(([k, v]) => `${k} = ${typeof v === "object" ? JSON.stringify(v) : v}`).join("\n");
   if (!path) { body.textContent = kv || "(no payload)"; return; }
   body.textContent = kv + "\n\nloading " + path + " …";
@@ -935,17 +992,17 @@ function paintHud() {
 }
 
 function feedRow(e) {
-  const p = e.payload || {};
-  const v = p.verdict;
-  const cls = (e.type === "shipped" || v === "pass" || v === "accept") ? "pass"
-            : (e.type === "task_failed" || e.type === "patch_apply_error"
-               || v === "fail" || v === "reject") ? "fail" : "";
-  const kv = Object.entries(p).filter(([k]) => k !== "artifact")
-    .map(([k, x]) => `${k}=${typeof x === "object" ? JSON.stringify(x) : x}`).join(" ");
+  const cls = isGreen(e) ? "pass" : isRed(e) ? "fail" : "";
+  const who = e.worker ? shown(roleOf(e.worker)) : "garage";
+  const what = [e.action, e.status].filter(Boolean).join(" ");
+  const kv = [e.job ? `job=${e.job}` : "", e.result ? `result=${e.result}` : ""]
+    .filter(Boolean).join(" ");
+  const hasArt = !!((e.raw || {}).payload || {}).artifact;
   const row = document.createElement("div");
-  row.className = "row " + cls + (p.artifact ? " has" : "");
-  row.innerHTML = `<span class="t">${(e.ts||"").slice(11,19)}</span>` +
-    `<span class="ag">${shown(e.agent)}</span><span class="ty">${e.type}</span>` +
+  row.className = "row " + cls + (hasArt ? " has" : "");
+  row.innerHTML =
+    `<span class="t">${new Date(tms(e)).toTimeString().slice(0, 8)}</span>` +
+    `<span class="ag">${who}</span><span class="ty">${what}</span>` +
     `<span class="kv">${kv.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</span>`;
   row.onclick = () => showArtifact(e);
   const f = $("feed");
@@ -956,36 +1013,47 @@ function feedRow(e) {
 
 /* ------------------------------------------------------------- transport */
 
-let ws = null, currentRun = null;
+/* The only place that knows a data source exists. Everything above consumes
+ * the normalized shape and would not notice the difference between a mock
+ * night and a real one -- which is the point: the backend can be wired in
+ * later without redrawing anything. */
+let source = null, currentRun = null;
 
-function openRun(id) {
-  if (ws) { ws.close(); ws = null; }
-  currentRun = id;
+function openSource(kind, id) {
+  if (source) { source.stop(); source = null; }
+  currentRun = id || null;
   LOG.length = 0; cursor = 0; clock = 0; playing = false;
   $("play").textContent = "▶";
   resetScene(); $("feed").innerHTML = "";
   $("art").classList.remove("open");
   setLive(true);
   paintHud(); drawTape(); paintReadout();
-  $("status").textContent = "connecting…"; $("dot").className = "dot";
+  $("status").textContent = kind === "mock" ? "mock feed" : "connecting…";
+  $("dot").className = "dot";
 
-  const proto = location.protocol === "https:" ? "wss" : "ws";
-  ws = new WebSocket(`${proto}://${location.host}/ws/live/${id}?after_seq=0`);
-  ws.onopen = () => { $("status").textContent = "live"; $("dot").className = "dot live"; };
-  ws.onmessage = ev => {
-    const e = JSON.parse(ev.data);
+  const onEvent = e => {
     if (e.error) { $("status").textContent = e.error; return; }
+    if (e.meta) {
+      if (e.meta === "connected") {
+        $("status").textContent = "live"; $("dot").className = "dot live";
+      }
+      if (e.meta === "closed") $("dot").classList.remove("live");
+      if (e.meta === "mock") $("dot").className = "dot live";
+      return;
+    }
     LOG.push(e);
-    // A finished run arrives in one burst. Park at the start and let the
-    // operator drive, instead of flashing the whole night past in 40ms --
-    // which is exactly the thing this week set out to fix.
-    if (live && !playing && LOG.length === 1) clock = tms(e);
-    if (live && playing) { /* the ticker will pick it up */ }
-    else if (live && cursor === LOG.length - 1) { /* stay parked */ }
-    if (e.type === "run_finished") $("status").textContent = "run finished";
+    if (live) {
+      // Mock events arrive one at a time, so following the tail IS watching
+      // it happen. A finished real run arrives in one burst, so we stay parked
+      // at the start and let the tape drive -- the week-5 rule, unchanged.
+      if (kind === "mock") advanceTo(tms(e));
+      else if (LOG.length === 1) { clock = tms(e); }
+    }
     drawTape(); paintReadout();
   };
-  ws.onclose = () => $("dot").classList.remove("live");
+
+  source = kind === "mock" ? new MockSource(onEvent) : new LiveSource(id, onEvent);
+  source.start();
 }
 
 function wireTransport() {
@@ -1080,7 +1148,7 @@ async function boot() {
 
   AGENTS.forEach((n, i) => {
     const a = makeAvatar(n);
-    const seat = couchSeat(i); a.x = seat.x; a.y = seat.y;
+    const st = STATIONS[n]; a.x = st.x; a.y = st.y; a.mode = "idle";
     layers.actors.addChild(a); avatars[n] = a;
     const b = makeBubble(n);
     layers.ui.addChild(b); bubbles[n] = b;
@@ -1099,18 +1167,27 @@ async function boot() {
   app.ticker.add(tick);
   app.ticker.add(tickPlayback);
 
-  const runs = await (await fetch("/api/runs")).json();
   const sel = $("runs");
-  runs.forEach(r => {
-    const o = document.createElement("option");
-    o.value = r.run_id;
-    o.textContent = `${r.run_id} · ${r.events} events` +
-      (r.running ? " · running" : "") + (r.invalid ? " · INVALID" : "");
-    sel.appendChild(o);
-  });
-  sel.onchange = () => openRun(sel.value);
-  if (runs.length) openRun(runs[0].run_id);
-  else $("status").textContent = "no runs yet";
+  const mock = document.createElement("option");
+  mock.value = "mock"; mock.textContent = "mock feed · no backend";
+  sel.appendChild(mock);
+
+  // The run list is a nicety, not a dependency: with no server at all the
+  // mock feed still runs, which is what makes the garage buildable on its own.
+  try {
+    const runs = await (await fetch("/api/runs")).json();
+    runs.forEach(r => {
+      const o = document.createElement("option");
+      o.value = r.run_id;
+      o.textContent = `${r.run_id} · ${r.events} events` +
+        (r.running ? " · running" : "") + (r.invalid ? " · INVALID" : "");
+      sel.appendChild(o);
+    });
+  } catch { /* no server: mock only */ }
+
+  const open = v => v === "mock" ? openSource("mock") : openSource("live", v);
+  sel.onchange = () => open(sel.value);
+  open(sel.value);
 
   // feed-only mode: the demo must work with the garage off (DESIGN §5.1)
   $("toggleFeed").onclick = () => {

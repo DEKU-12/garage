@@ -157,11 +157,36 @@ recognizable in silhouette alone:
 | Test bench | Tester | Bench + oscilloscope + the **STAMP** | Runs gauge needle; then the stamp event (§5.2) |
 | Workbench | Reviewer | Pegboard of tools + a **ladder leaning on the wall** (the ponytail ladder, visual pun intended) | Holds patch paper up to the lamp, squints |
 | Side desk | Scribe | Typewriter + coffee | Types; page scrolls up |
-| Couch | idle pool | Sagging couch, pizza box, floor lamp OFF | Sit/blink/occasional phone-glow |
+| Couch | *(scenery)* | Sagging couch, pizza box, floor lamp OFF | Nobody sits here any more -- see §4.2.1 |
 
 Ambient layer (subtle, ≤ 3 concurrent effects, all disabled under
 `prefers-reduced-motion`): neon sign flicker (every ~20s), a moth around the
 sodium lamp, monitor scanline drift. Nothing ambient may use `--pass`/`--fail`.
+
+### 4.2.1 The car is the job, and it does not move
+
+The car on the centre lift **is** the file being worked on. It rolls in when a
+job starts and leaves through the mail slot when it ships, and in between it
+stays put.
+
+Mechanics come to it. Each has a fixed personal workstation (the six above) and
+a dedicated **bay slot** beside the car, on the same side of the room as their
+own bench so no two walking paths cross:
+
+| Mechanic | Workstation | Bay slot |
+|---|---|---|
+| Dholu | whiteboard, top-left | left-upper |
+| Bheem | filing boxes, top-middle | above |
+| Kalia | build desk, top-right | right-upper |
+| Raju | test bench, bottom-right | right-lower |
+| Chutki | workbench, bottom-middle | below |
+| Bholu | side desk, left | left-lower |
+
+The earlier design had the idle pool on the couch and the car following
+whoever was working. That read as "six people waiting" rather than "a job being
+worked on", and it made the car -- the one object a viewer can follow without
+knowing anything -- the least stable thing on screen. The couch stays as
+scenery.
 
 ### 4.3 Characters
 
@@ -171,9 +196,10 @@ sodium lamp, monitor scanline drift. Nothing ambient may use `--pass`/`--fail`.
   Kenney.nl CC0 bases; recolors stay CC0.
 - Name tags: 12px Silkscreen, `--paper-dim`, shown always (interviewers won't
   guess who's who).
-- States: `idle` (couch, desaturated toward `--ink-3`) → `walking` (4-frame
-  cycle along waypoints, 90 px/s) → `working` (station loop + `--work` under-glow)
-  → `handoff` (paper sprite arcs station-to-station, 400ms, slight overshoot).
+- States: `idle` (**at their own workstation**, slow breath) → `walking`
+  (bob cycle along waypoints, 300 px/s) → `working` (faster bob at the car bay
+  + `--work` under-glow and popup) → `handoff` (paper sprite arcs
+  station-to-station, 400ms, slight overshoot).
 
 ### 4.4 Event → scene mapping (the contract with `events.jsonl`)
 
@@ -182,7 +208,8 @@ The scene is a pure view of the reducer's `SceneState` (TAD §5.2). Full mapping
 | Event | Scene response |
 |---|---|
 | `task_started` | Issue title chalks onto the whiteboard; lights dim 10% then restore (a "new job" beat) |
-| `agent_activated` | Avatar walks couch→station; station lamp turns `--work`; previous `--work` glow extinguishes (§2.2 singular rule) |
+| `agent_activated` | Avatar walks **workstation→car bay**; station lamp turns `--work`; popup appears; previous `--work` glow extinguishes (§2.2 singular rule) |
+| `agent_done` | Avatar walks **car bay→their own workstation** and returns to idle; popup clears |
 | `context_pack_ready` | Scout tosses a paper bundle to the build desk (handoff arc) |
 | `patch_produced` | Builder's monitors flash; paper bundle arcs to test bench |
 | `tests_run` | Bench gauge needle sweeps for the duration (min 600ms even if grading returned instantly — legibility beats literal timing) |
