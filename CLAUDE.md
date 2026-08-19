@@ -1,6 +1,7 @@
 # Garage — instructions for AI assistants
 
-**Read `PLAN.md` first — it says what we are building.** Then `rules.md`,
+**New session? Read `HANDOFF.md` first** — full context in one file.
+Then `PLAN.md`, which says what we are building. Then `rules.md`,
 which is the contract for how code gets written and wins over any suggestion,
 including anything in this file.
 
