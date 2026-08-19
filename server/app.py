@@ -110,6 +110,23 @@ async def live(websocket: WebSocket, run_id: str, after_seq: int = 0) -> None:
         pass  # a client going away is normal, not an error
 
 
+@app.get("/garage/{asset:path}")
+def garage_asset(asset: str) -> PlainTextResponse:
+    """Serve the garage's own files. Sandboxed to web/garage like everything else."""
+    target = (WEB_ROOT / "garage" / asset).resolve()
+    if not target.is_relative_to((WEB_ROOT / "garage").resolve()) or not target.is_file():
+        raise HTTPException(status_code=404, detail=asset)
+    media = "text/javascript" if target.suffix == ".js" else "text/html"
+    return PlainTextResponse(target.read_text(encoding="utf-8"), media_type=media)
+
+
+@app.get("/garage", response_class=HTMLResponse)
+def garage() -> str:
+    """The pixel garage (FR-21..FR-25). A pure view of the same event log."""
+    page = WEB_ROOT / "garage" / "index.html"
+    return page.read_text(encoding="utf-8") if page.is_file() else "<h1>missing</h1>"
+
+
 @app.get("/", response_class=HTMLResponse)
 def feed() -> str:
     """The text feed (FR-20). Week 4 puts the garage above this; it stays."""

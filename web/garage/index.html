@@ -1,0 +1,84 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>The Garage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  /* DESIGN.md §2.1 tokens, verbatim. Nothing here invents a colour. */
+  :root {
+    --ink-0:#12101A; --ink-1:#1C1930; --ink-2:#2A2545; --ink-3:#3D3763;
+    --paper:#E8E4D8; --paper-dim:#9B96A8; --work:#FFB13D;
+    --pass:#3DDC97; --fail:#FF5D5D; --wire:#5BC8F5;
+    --font-display:"Silkscreen","Courier New",monospace;
+    --font-data:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--ink-0); color:var(--paper);
+    font:14px/1.5 var(--font-data); height:100vh;
+    display:grid; grid-template-rows:48px 1fr 150px;
+  }
+  header {
+    display:flex; align-items:center; gap:14px; padding:0 16px;
+    background:var(--ink-1); border-bottom:1px solid var(--ink-3);
+  }
+  h1 { font:16px var(--font-display); margin:0; text-transform:uppercase; letter-spacing:.5px; }
+  select, button {
+    background:var(--ink-2); color:var(--paper); border:1px solid var(--ink-3);
+    font:13px var(--font-data); padding:4px 8px; border-radius:2px; cursor:pointer;
+  }
+  button:focus-visible, select:focus-visible { outline:2px solid var(--work); outline-offset:1px; }
+  .dot { width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--paper-dim); }
+  .dot.live { background:var(--wire); box-shadow:0 0 8px var(--wire); }
+  .status { color:var(--paper-dim); font-size:12px; }
+  .spacer { flex:1; }
+  main { display:grid; grid-template-columns:1fr 230px; overflow:hidden; }
+  #stage { display:grid; place-items:center; overflow:hidden; background:var(--ink-0); }
+  #stage canvas { image-rendering:pixelated; }
+  aside { background:var(--ink-1); border-left:1px solid var(--ink-3); padding:12px 14px; overflow-y:auto; }
+  aside h2 { font:11px var(--font-display); color:var(--paper-dim); margin:14px 0 3px; letter-spacing:.5px; }
+  aside h2:first-child { margin-top:0; }
+  .big { font-size:13px; word-break:break-all; }
+  .spend { color:var(--work); font-variant-numeric:tabular-nums; font-size:15px; }
+  .stamps { letter-spacing:3px; }
+  .stamps .ok { color:var(--pass); } .stamps .no { color:var(--fail); }
+  hr { border:0; border-top:1px solid var(--ink-3); margin:11px 0; }
+  /* the feed drawer never dies (DESIGN §5.1) */
+  #feed { overflow-y:auto; background:var(--ink-0); border-top:1px solid var(--ink-3); padding:6px 0; }
+  .row { display:grid; grid-template-columns:70px 100px 168px 1fr; gap:10px; padding:1px 16px; }
+  .row .t { color:var(--paper-dim); font-size:11.5px; }
+  .row .ag, .row .ty { white-space:nowrap; }
+  .row .ag { color:var(--paper-dim); }
+  .row .kv { color:var(--paper-dim); white-space:pre-wrap; word-break:break-word; font-size:12.5px; }
+  .row.pass .ty, .row.pass .kv { color:var(--pass); }
+  .row.fail .ty, .row.fail .kv { color:var(--fail); }
+</style>
+
+<header>
+  <h1>The&nbsp;Garage</h1>
+  <select id="runs"></select>
+  <span><span class="dot" id="dot"></span> <span class="status" id="status">idle</span></span>
+  <span class="spacer"></span>
+  <button id="toggleFeed">feed only</button>
+</header>
+
+<main>
+  <div id="stage"></div>
+  <aside>
+    <h2>Task</h2><div class="big" id="task">—</div>
+    <h2>Attempt</h2><div class="big" id="attempt">—</div>
+    <hr>
+    <h2>Gates</h2>
+    <div class="big">tests <span class="stamps" id="gtests">·</span></div>
+    <div class="big">review <span class="stamps" id="greview">·</span></div>
+    <hr>
+    <h2>Spend</h2><div class="big spend" id="spend">$0.0000</div>
+    <h2>Shipped</h2><div class="big" id="shipped">0</div>
+    <h2>Failed</h2><div class="big" id="failed">0</div>
+  </aside>
+</main>
+
+<div id="feed"></div>
+
+<script src="/garage/vendor/pixi.min.js"></script>
+<script src="/garage/garage.js"></script>
