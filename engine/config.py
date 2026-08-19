@@ -38,16 +38,27 @@ class RunConfig(BaseModel):
     max_correctness_retries: int = 3
     max_simplicity_retries: int = 1
 
-    # FR-12: a token cap needs no price table, so budgets work from day one.
+    # FR-12, and the budget design in two tiers:
+    #
+    #   per-TASK caps  = runaway guards. Generous by construction -- they must
+    #                    clear the cost of a FULL retry budget, or they become
+    #                    the retry limit, and only the arm that retries can
+    #                    reach them, so they bias every gate experiment against
+    #                    the gate. This is exactly how E1's $0.50 cap removed
+    #                    the gate-on arm's last attempt on 3 of 26 tasks.
+    #   per-RUN cap    = the actual budget, set per invocation via --max-usd
+    #                    and checked against the ledger on disk.
+    #
     # Checked at node entry, never mid-call: a task ends `budget_exceeded`,
-    # which is a clean stop, not a crash.
+    # which is a clean stop, not a crash. test_config pins both against the
+    # worst case the current ceilings allow.
     #
     # Must clear the termination proof with room to spare, or it silently
     # becomes the binding retry limit instead of the backstop it is meant to
     # be. At 40k it cut the gate-ON arm to 3 builder runs where the design
     # allows 5 -- throttling the only arm that retries, and so biasing E1
     # against the very thing it measures. 5 runs x ~25k is the real ceiling.
-    per_task_token_cap: int = 150_000
+    per_task_token_cap: int = 250_000
 
     # Deterministic repair of model hunk-header arithmetic (R3). A flag,
     # not a constant, so its contribution can be measured like any other.
@@ -61,7 +72,13 @@ class RunConfig(BaseModel):
     scout_max_tool_calls: int = 6
 
     # Budgets (FR-12). Hitting one is `budget_exceeded`, never `crashed`.
-    per_task_usd_cap: float = 0.50
+    # Must exceed what a FULL retry budget costs, or it stops being a backstop
+    # and becomes the retry limit -- and only the arm that retries can reach it,
+    # so it silently biases every gate experiment against the gate. At $0.50 it
+    # removed the gate-on arm's final attempt on 3 of E1's 26 tasks, which is
+    # why that result is published as a lower bound. Worst case now is 5 builder
+    # runs plus reviewers at the priciest configured model; test_config pins it.
+    per_task_usd_cap: float = 4.00
     per_run_usd_cap: float = 15.00
 
     temperature: float = 0.2
@@ -86,7 +103,7 @@ class RunConfig(BaseModel):
     # use, so raising it costs nothing on responses that finish early. The
     # Groq path still shrinks it to fit that provider's per-minute ceiling
     # (base.py CEILINGS), so this stays safe for the E4 bake-off.
-    max_completion_tokens: int = 16_000
+    max_completion_tokens: int = 32_000
 
     # The provider's per-minute ceiling for ONE request: prompt + reserved
     # answer must both fit under it. Groq's free tier is 8000 for gpt-oss-20b.
