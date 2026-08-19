@@ -244,11 +244,6 @@ mistake after being corrected.
 
 ---
 
-## Week 3 — The event stream
-
-*Not started. This section gets written when the week-3 exit criterion is met:
-a live run streams to a browser text feed, and a saved run replays as text.*
-
 ## Week 2 — the loop, and the number
 
 **Goal:** wire the agents into a real state machine with quality gates, run 30
@@ -396,3 +391,10 @@ the pixels.
 Two things to fix before E2 and E3, since both would distort those experiments
 the same way: raise the per-task dollar cap above what a full retry budget
 costs, and raise the output ceiling so hard tasks stop truncating mid-diff.
+
+---
+
+## Week 3 — The event stream
+
+*Not started. This section gets written when the week-3 exit criterion is met:
+a live run streams to a browser text feed, and a saved run replays as text.*
