@@ -66,7 +66,7 @@ class RunSummary:
         return sum(self.attempts_on_solved) / len(self.attempts_on_solved)
 
 
-def summarize(run_dir: Path) -> RunSummary:
+def summarize(run_dir: Path, only_tasks: set[str] | None = None) -> RunSummary:
     """Fold one run directory into a summary. Reads only committed artifacts."""
     run_dir = Path(run_dir)
     results = run_dir / "results.csv"
@@ -74,6 +74,10 @@ def summarize(run_dir: Path) -> RunSummary:
     if results.is_file():
         with results.open(newline="", encoding="utf-8") as handle:
             rows = list(csv.DictReader(handle))
+
+    if only_tasks is not None:
+        # Restrict to a shared task set so two arms are compared like for like.
+        rows = [r for r in rows if r.get("task_id") in only_tasks]
 
     solved_rows = [r for r in rows if r.get("solved") == "True"]
     failures: dict[str, int] = {}
@@ -85,6 +89,8 @@ def summarize(run_dir: Path) -> RunSummary:
         )
 
     ledger = read_ledger(run_dir / "ledger.csv")
+    if only_tasks is not None:
+        ledger = [row for row in ledger if row.task_id in only_tasks]
     gates: dict[str, bool] = {}
     config = run_dir / "config.json"
     if config.is_file():
@@ -180,3 +186,20 @@ def gate_lift(off: RunSummary, on: RunSummary) -> str:
         f"**{_pct(off)}** to **{_pct(on)}** "
         f"({delta:+.0%}) when the eval loop was turned on{cost}."
     )
+
+
+def common_tasks(run_dirs: list[Path]) -> set[str]:
+    """Task ids present in EVERY run -- the only honest basis for an A/B.
+
+    An interrupted batch leaves one arm a task ahead of the other. Comparing
+    27 tasks against 26 is not like for like, and dropping the extra row is
+    more honest than reporting the mismatch or refusing to report at all.
+    """
+    sets = []
+    for d in run_dirs:
+        results = Path(d) / "results.csv"
+        if not results.is_file():
+            return set()
+        with results.open(newline="", encoding="utf-8") as handle:
+            sets.append({r["task_id"] for r in csv.DictReader(handle) if r.get("task_id")})
+    return set.intersection(*sets) if sets else set()

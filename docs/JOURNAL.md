@@ -244,8 +244,155 @@ mistake after being corrected.
 
 ---
 
-## Week 2 — The loop and the number
+## Week 3 — The event stream
 
-*Not started. This section gets written when the week-2 exit criterion is met:
-30–50 bugs run twice, once with the quality gate off and once with it on, and
-the comparison table exists.*
+*Not started. This section gets written when the week-3 exit criterion is met:
+a live run streams to a browser text feed, and a saved run replays as text.*
+
+## Week 2 — the loop, and the number
+
+**Goal:** wire the agents into a real state machine with quality gates, run 30
+bugs twice — once with the gate on, once off — and find out what the gate is
+actually worth.
+
+**Status: done.** The number exists.
+
+### The result
+
+| | Solved | $/solved |
+|---|---|---|
+| Gate **off** (one shot) | 9 of 26 | $0.17 |
+| Gate **on** (retries) | **13 of 26** | $0.46 |
+
+**+15 points of solve rate, for about 2.8x the cost per fix.**
+
+The headline undersells the mechanism. Count the tasks where the AI never
+managed to write a *valid* fix at all — not a wrong fix, an unusable one:
+
+| | |
+|---|---|
+| Without second chances | **14** |
+| With second chances | **7** |
+
+Halved. That is the entire loop in one number: when a patch fails to apply, git
+says exactly what is wrong, that text goes back to the AI, and the second
+attempt fixes it. Four of those recovered went on to pass their tests.
+
+### What we built
+
+The state machine, the two gates, the batch runner, cost accounting, and the
+report generator that produces every number above from raw logs.
+
+The design decision worth defending in an interview: **turning a gate off
+rewires the machine rather than adding an if-statement.** With the gate off,
+there is physically no path back to the builder — it cannot retry even in
+principle. A test inspects the compiled graph to prove it. That is what makes
+the comparison honest instead of a promise.
+
+### The bugs — nine of them, and a pattern
+
+Week 1 had five bugs that looked like the AI failing. Week 2 had four more, and
+they rhyme: **every one made something look like a model failure when it was
+ours, and several would have put a wrong number in front of a reader.**
+
+**1. Retries were off by one, everywhere.** We counted *failures seen* as
+*retries taken*. But the first failure hasn't been retried yet — so every gate
+lost an attempt. The simplicity reviewer was the worst case: it gave up on its
+*first* rejection, never once asking for a smaller patch. That gate would have
+measured as worthless because it never actually fired.
+
+**2. A repair silently vanished, and 58 tests stayed green.** Models write
+`@@` without the line numbers that follow it — the edit is right, the
+arithmetic is missing. We compute it for them. During a refactor that step got
+dropped, and the entire test suite still passed, because every test used a
+well-formed example. Only a real run caught it. There is now a deliberately
+malformed one in the fixtures.
+
+**3. The Scout was looking in the wrong place.** It ranked files by how many
+search terms they matched. A bug report mentioning `FilePathField` (the class
+being fixed, a handful of matches) and `CharField` (its parent, hundreds) would
+send it to CharField's neighbourhood — and the class being fixed never made it
+into what the AI saw. The AI said so in plain words: *"I don't have enough
+information about the exact location and surrounding code."* Rare words now
+count for far more than common ones, and defining a name beats mentioning it.
+
+**4. Running out of daily quota was recorded as the AI failing.** Groq's free
+tier caps tokens per day. When it ran out, 43 calls came back rejected — the AI
+never saw them — and each was filed as a model failure. The result read
+"2/30 both arms, no lift," and the table rendered perfectly. The arithmetic was
+real; the rows were lies. **The only visible tell was the clock**: 60 runs
+finished in 25 minutes when one run takes 1.7. Quota exhaustion now stops the
+batch and writes *nothing* for the task in flight, so a resume re-runs it
+instead of inheriting a failure that never happened.
+
+### The two that cost real money
+
+**5. A short timeout was double-paying for the same work.** Our request timeout
+was 120 seconds. Real generations ran to 237. When the client gives up, the
+provider has *already produced the tokens and charges for them* — then the SDK
+quietly re-sends, on top of our own retry loop. One logical call could bill up
+to nine generations while our ledger recorded one.
+
+We only found it because the bill and the ledger disagreed: **$5.44 charged
+against $2.20 recorded.** Our own accounting was perfectly self-consistent and
+completely wrong, because it can only see responses that arrive. A client-side
+ledger is structurally blind to work you abandon.
+
+Fixed by not abandoning work: timeout raised to 900s, and the SDK's own retries
+turned off so there is exactly one retry policy. Verified against the provider's
+usage page: predicted 813,696 in / 465,094 out, actual **813,696 / 465,094** —
+exact to the token.
+
+**6. Our own safety caps were rigging the experiment.** Twice. A token cap and
+then a dollar cap, both sized for the previous provider, cut the gate-on arm's
+final attempt — and *only* the gate-on arm can reach a cap, because only it
+retries. Both made the gate look worse than it is. The first was caught and
+fixed mid-experiment; the second survived into the final run, which is why the
+published +15 is labelled a **lower bound** rather than a result.
+
+**A backstop that binds before the thing it is backing up has silently become
+the limit.** There is now a test asserting the cap clears the retry budget.
+
+### Two more, briefly
+
+**7. A fix that didn't apply, in a commit that said it did.** A find-and-replace
+whose search text didn't match: the file was unchanged, the commit message
+confidently described the change. An assertion written in that same commit
+failed and caught it — the argument for testing settings rather than trusting
+that an edit landed.
+
+**8. Case-insensitive filesystems.** Launching with `--run-id E1` silently
+resumed a quarantined run named `e1` — macOS treats them as the same directory.
+It skipped all 30 tasks, exited 0, and printed a report headed with the new
+model containing the old model's numbers. The collision was the trigger; the
+real defect was that resume never checked whether the existing run matched the
+requested configuration. It now refuses on any mismatch.
+
+### What it cost
+
+About **$8** and roughly two hours of compute for the final run — plus perhaps
+$3 wasted on the double-billing before it was found, and four abandoned runs
+along the way.
+
+Worth noting: **the entire harness was built and debugged on a free tier.**
+Every bug above was found for $0. Switching to a paid model happened only when
+the free tier's daily quota turned a two-hour experiment into a three-day queue.
+Debug for free; measure for money.
+
+### What we deliberately did not do
+
+Fix the caps and re-run for a prettier number. The +15 is measured under
+conditions that penalise the gate, and it is reported that way, with the reason
+stated. A smaller honest number beats a larger tuned one — and the rules of this
+repo forbid the tuning anyway.
+
+### Where week 2 leaves things
+
+The engine works and the number is real. `experiments/E1_gate/` holds the frozen
+configs, the raw rows, and the report — which is what unlocks the visualization
+work in weeks 3 and 4 under this repo's own first law: the number comes before
+the pixels.
+
+Two things to fix before E2 and E3, since both would distort those experiments
+the same way: raise the per-task dollar cap above what a full retry budget
+costs, and raise the output ceiling so hard tasks stop truncating mid-diff.

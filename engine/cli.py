@@ -33,7 +33,7 @@ from engine.batch import (
 )
 from engine.errors import QuotaExhausted
 from engine.graph import build_graph
-from engine.report.aggregate import gate_lift, render, summarize
+from engine.report.aggregate import common_tasks, gate_lift, render, summarize
 from engine.state import TaskState, new_state
 from engine.agents.stub import (
     REJECT_RUNG_3,
@@ -328,7 +328,18 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
 
 def cmd_report(args: argparse.Namespace) -> int:
     """Turn run logs into the tables. The only source of reported numbers."""
-    summaries = [summarize(Path(d)) for d in args.run_dirs]
+    dirs = [Path(d) for d in args.run_dirs]
+    shared = common_tasks(dirs) if len(dirs) > 1 else None
+    summaries = [summarize(d, only_tasks=shared) for d in dirs]
+    if shared is not None:
+        totals = []
+        for d in dirs:
+            with (d / "results.csv").open(newline="", encoding="utf-8") as h:
+                totals.append(sum(1 for _ in csv.DictReader(h)))
+        if len(set(totals)) > 1:
+            print(f"*Restricted to the {len(shared)} tasks present in every arm "
+                  f"(arms ran {', '.join(map(str, totals))}); an interrupted "
+                  f"batch leaves one arm ahead.*\n")
     print(render(summaries, title=args.title))
     if len(summaries) == 2:
         off = next((s for s in summaries if not s.gates.get("tester_gate")), None)

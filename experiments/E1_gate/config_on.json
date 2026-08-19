@@ -1,0 +1,41 @@
+{
+  "context_token_budget": 6000,
+  "effort": "high",
+  "max_completion_tokens": 16000,
+  "max_correctness_retries": 3,
+  "max_simplicity_retries": 1,
+  "min_completion_tokens": 1500,
+  "model_for_role": {
+    "builder": "claude-sonnet-5",
+    "orchestrator": "claude-sonnet-5",
+    "reviewer": "claude-sonnet-5",
+    "scout": "claude-sonnet-5",
+    "scribe": "claude-sonnet-5",
+    "tester": "claude-sonnet-5"
+  },
+  "per_run_usd_cap": 15.0,
+  "per_task_token_cap": 150000,
+  "per_task_usd_cap": 0.5,
+  "prompt_hashes": {
+    "builder": "2bdad0a0af08b9830e7f021ce07dcd2b9f0c577da0f7db6f6da883e00baecd6a",
+    "orchestrator": "358f84132a3384d4ad9fd5c057e8fa59d00a05b3319ddcc23dab7fbb96224267",
+    "reviewer": "1b6ee6891acbecf64c096fdf590890612c1ecb899acb84786cc79651902dfe7a",
+    "scout": "65c338d6592861fef22e44c02a057814ee0f9421b2de0caebae8efb26c8ff605",
+    "scribe": "84e1b45356ad12323d81f7c1b7ff9a083fe93fb927b017abc6f9d40433de899e",
+    "tester": "2d0e023fcac52c9ddfa74357ea3a13dbc2ae211a2fec1f4d39bd6ad2167eb01e"
+  },
+  "reasoning_effort": "low",
+  "repair_hunks": true,
+  "request_token_ceiling": 8000,
+  "request_token_margin": 400,
+  "reviewer_gate": true,
+  "run_id": "E1_clean_on",
+  "scout": true,
+  "scout_max_tool_calls": 6,
+  "seed": 7,
+  "task_ids": [
+    "django__django-12284"
+  ],
+  "temperature": 0.2,
+  "tester_gate": true
+}
