@@ -78,7 +78,15 @@ class RunConfig(BaseModel):
     # prompt + max_completion_tokens must stay under 8000 or every call 413s
     # before the model sees it. 6000 leaves ~2000 for prompt + context, which
     # also caps context_token_budget on this tier (PRD's 6000 will not fit).
-    max_completion_tokens: int = 6000
+    # Every current model THINKS before it answers, and thinking is billed and
+    # counted as output. 6000 was sized to fit under Groq's 8000 tokens/minute
+    # wall; on Claude it truncated 4 of the first 21 E1 attempts mid-diff
+    # (finish_reason=max_tokens), and a truncated diff reads downstream as the
+    # model failing to produce a valid patch. This caps what a response MAY
+    # use, so raising it costs nothing on responses that finish early. The
+    # Groq path still shrinks it to fit that provider's per-minute ceiling
+    # (base.py CEILINGS), so this stays safe for the E4 bake-off.
+    max_completion_tokens: int = 16_000
 
     # The provider's per-minute ceiling for ONE request: prompt + reserved
     # answer must both fit under it. Groq's free tier is 8000 for gpt-oss-20b.
