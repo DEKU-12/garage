@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from engine.batch import ARMS, append_result, completed_task_ids
 
 
@@ -57,3 +59,25 @@ def test_arms_keep_separate_result_files(tmp_path: Path) -> None:
     append_result(on, _row("a"))
     assert completed_task_ids(on) == {"a"}
     assert completed_task_ids(off) == set()
+
+
+def test_run_spend_sums_every_arm_from_disk(tmp_path: Path) -> None:
+    """A resumed batch must inherit what earlier sessions already spent.
+
+    A run-level cap that forgets prior spend is not a cap -- resume three times
+    and you have paid three times the ceiling.
+    """
+    from engine.accounting import ledger as L
+    from engine.batch import run_spend_usd
+
+    on, off = tmp_path / "on", tmp_path / "off"
+    row = lambda t: L.row_for(t, 1, "builder", "openai/gpt-oss-20b",
+                              1_000_000, 1_000_000, 10)  # $0.375 each
+    L.append(on / "ledger.csv", [row("a")])
+    L.append(off / "ledger.csv", [row("a"), row("b")])
+    assert run_spend_usd([on, off]) == pytest.approx(0.375 * 3)
+
+
+def test_run_spend_is_zero_before_anything_runs(tmp_path: Path) -> None:
+    from engine.batch import run_spend_usd
+    assert run_spend_usd([tmp_path / "nope"]) == 0.0

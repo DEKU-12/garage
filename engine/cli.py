@@ -27,6 +27,7 @@ from engine.batch import (
     completed_task_ids,
     disk_free_gb,
     remove_image,
+    run_spend_usd,
     select_tasks,
 )
 from engine.errors import QuotaExhausted
@@ -233,8 +234,17 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
             print(f"\n[{i}/{len(task_ids)}] {task_id} -- done already, skipping")
             continue
 
+        spent = run_spend_usd(list(run_dirs.values()))
+        if args.max_usd and spent >= args.max_usd:
+            print(f"\n{'=' * 68}")
+            print(f"BUDGET REACHED -- ${spent:.4f} of ${args.max_usd:.2f}. Stopping.")
+            print(f"{completed} task-arm run(s) this session. Re-run the same "
+                  f"--run-id with a higher --max-usd to continue.")
+            return 4
+
         task = load_task(task_id)
-        print(f"\n{'=' * 68}\n[{i}/{len(task_ids)}] {task_id}")
+        print(f"\n{'=' * 68}\n[{i}/{len(task_ids)}] {task_id}  "
+              f"(spent ${spent:.4f})")
 
         for arm in arms:
             if task_id in done[arm.label]:
@@ -346,6 +356,10 @@ def main(argv: list[str] | None = None) -> int:
     batch.add_argument("--run-id", default=None,
                        help="reuse the same id to RESUME an interrupted batch")
     batch.add_argument("--no-scout", action="store_true")
+    batch.add_argument("--max-usd", type=float, default=5.0,
+                       help="hard ceiling for the WHOLE batch, resumes included "
+                            "(default: $5). Checked before each task against "
+                            "the ledger on disk.")
     batch.add_argument("--keep-images", action="store_true",
                        help="skip pruning -- needs ~4.2 GB of disk per task")
     batch.add_argument("--stub-failures", default="")

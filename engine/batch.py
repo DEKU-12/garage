@@ -94,3 +94,15 @@ def select_tasks(count: int, repo: str | None = None,
     rows = load_tasks(dataset=dataset)
     ids = [r.task_id for r in rows if repo is None or r.repo == repo]
     return sorted(ids)[:count]
+
+
+def run_spend_usd(run_dirs: list[Path]) -> float:
+    """Dollars spent so far across every arm of a batch.
+
+    Summed from ledger rows on disk rather than a counter in memory, so a
+    resumed batch inherits what previous sessions already spent -- a run-level
+    cap that forgets prior spend is not a cap.
+    """
+    from engine.accounting.ledger import read
+
+    return sum(row.usd for d in run_dirs for row in read(Path(d) / "ledger.csv"))

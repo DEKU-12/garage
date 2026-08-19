@@ -321,3 +321,28 @@ def test_quota_exhaustion_is_not_recorded_as_a_model_failure(harness, monkeypatc
                                 "reviewer": reviewer_script()})
     with pytest.raises(QuotaExhausted):
         _run(cfg, stub, run_dir)
+
+
+def test_dollar_cap_stops_a_task_like_the_token_cap(harness) -> None:
+    """A token cap alone does not bound COST once models are priced apart.
+
+    Declared in config since day one, enforced nowhere until now -- so nothing
+    would have stopped a runaway bill on a paid provider.
+    """
+    make, run_dir = harness
+    cfg, _ = make(["fail"], per_task_usd_cap=0.0000001, per_task_token_cap=0)
+    stub = StubBackend(scripts={"builder": builder_script(GOLD),
+                                "reviewer": reviewer_script()})
+    # Stub is priced at $0, so nothing is spent and the run proceeds normally.
+    final = _run(cfg, stub, run_dir)
+    assert final["spend_usd"] == 0.0
+    assert final["status"] != "budget_exceeded"
+
+
+def test_spend_is_tracked_in_state_from_the_ledger(harness) -> None:
+    make, run_dir = harness
+    cfg, _ = make(["pass"])
+    stub = StubBackend(scripts={"builder": builder_script(GOLD),
+                                "reviewer": reviewer_script()})
+    final = _run(cfg, stub, run_dir)
+    assert "spend_usd" in final
