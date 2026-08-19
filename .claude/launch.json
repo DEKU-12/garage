@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "garage-server",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "uv run uvicorn server.app:app --host 127.0.0.1 --port $PORT"],
+      "autoPort": true
+    }
+  ]
+}
