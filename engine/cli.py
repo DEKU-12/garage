@@ -78,7 +78,7 @@ def _attempt_dir(run_dir: Path, task_id: str, n: int) -> Path:
 
 def run_one(task: Task, cfg: RunConfig, run_dir: Path, stub: StubBackend | None,
             max_attempts: int | None = None, context: str = "",
-            events: EventLog | None = None) -> dict[str, object]:
+            events: EventLog | None = None, grader=None) -> dict[str, object]:
     """One task through the state machine. Returns its results row.
 
     Never raises for a model or patch failure -- those are outcomes, recorded
@@ -108,7 +108,7 @@ def run_one(task: Task, cfg: RunConfig, run_dir: Path, stub: StubBackend | None,
                     repo=task.repo, base_commit=task.base_commit,
                     fail_to_pass=len(task.fail_to_pass))
 
-    machine = build_graph(cfg, run_dir, stub, events=events)
+    machine = build_graph(cfg, run_dir, stub, events=events, grader=grader)
     # The graph's own recursion guard. Each builder run costs at most four node
     # visits (builder, tester, reviewer, routing), plus scout and the terminal
     # node -- generous headroom over the 1+3+1 termination proof.
@@ -142,6 +142,7 @@ def run_one(task: Task, cfg: RunConfig, run_dir: Path, stub: StubBackend | None,
     return {
         "task_id": task.task_id,
         "solved": final.get("status") == "shipped",
+        "status": final.get("status", ""),
         "attempts": len(final.get("attempts", [])),
         "failure_type": final.get("failure_type", ""),
         "prompt_tokens": final.get("prompt_tokens", 0),
@@ -357,6 +358,183 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
     return 0
 
 
+WITNESS_CLAUSE = """
+
+--- HOW THIS WILL BE JUDGED (read before writing any code) ---
+
+This repository ships no list of tests that must pass, so a patch that merely
+applies proves nothing. Your change is accepted only if BOTH hold:
+
+  1. No test that passes today starts failing.
+  2. You add or change a test that FAILS on the current code and PASSES with
+     your fix. This is the witness test, and without one the result is
+     reported as UNVERIFIED rather than as a fix.
+
+So your diff must contain two things: the fix, and a test that demonstrates it.
+Put the test where this project already keeps its tests.
+"""
+
+
+def _repo_stub(args: argparse.Namespace) -> StubBackend:
+    """Canned responses for repo mode.
+
+    There is deliberately no correct answer here. The benchmark stub replays
+    `task.gold_patch` -- the known human fix that ships with the dataset -- and
+    an arbitrary repo has no equivalent, so inventing one would mean testing
+    the pipeline against a fiction.
+
+    So this stub only ever produces responses that fail to apply. That still
+    exercises everything worth exercising offline: the builder loop, the retry
+    accounting, the caps and the event log. It can never reach the grader,
+    which is honest -- offline, there is nothing to grade.
+    """
+    canned = {"prose": PROSE_ONLY, "malformed": MALFORMED_DIFF, "empty": EMPTY}
+    names = (getattr(args, "stub_failures", "") or "prose").split(",")
+    script = [canned[n] for n in names if n in canned] or [PROSE_ONLY]
+    reviewer_before = [REJECT_RUNG_3] if getattr(args, "stub_reject", False) else []
+    return StubBackend(scripts={"builder": script * 6,
+                                "reviewer": reviewer_script(before=reviewer_before)})
+
+
+def cmd_run_repo(args: argparse.Namespace) -> int:
+    """The repo front door: point at a GitHub URL instead of a benchmark id."""
+    from engine.eval.repo_grader import attempt_grader
+    from engine.graph import WORKSPACES
+    from engine.repo import ship as shipping
+    from engine.repo.front_door import open_repo
+
+    run_id = args.run_id or f"repo_{datetime.now(timezone.utc):%Y%m%d_%H%M%S}"
+    run_dir = REPO_ROOT / "runs" / run_id
+
+    try:
+        task = open_repo(args.url, args.issue + WITNESS_CLAUSE, WORKSPACES)
+    except WorkspaceError as exc:
+        print(f"\nCANNOT OPEN REPO: {exc}")
+        return 3
+
+    print(f"\nrepo  {task.repo} @ {task.base_commit[:12]} ({task.default_branch})")
+    print(f"suite {task.suite.kind} -- {task.suite.why}")
+    if not task.suite.per_test:
+        print("      NOTE: this suite cannot name individual tests, so the best")
+        print("      outcome available is UNVERIFIED, never a confirmed fix.")
+    print(f"run   {run_id}  model={args.model}")
+
+    cfg = RunConfig(
+        run_id=run_id,
+        task_ids=[task.task_id],
+        model_for_role={r: args.model for r in
+                        ("orchestrator", "scout", "builder", "tester", "reviewer", "scribe")},
+        scout=not args.no_scout,
+        reviewer_gate=not args.no_reviewer_gate,
+        prompt_hashes=prompt_hashes(PROMPTS),
+    )
+    cfg.freeze_to(run_dir / "config.json")
+
+    events = EventLog.for_run(run_dir, run_id)
+    events.emit("run_started", agent="orchestrator", model=args.model, tasks=1,
+                gates={"tester": cfg.tester_gate, "reviewer": cfg.reviewer_gate,
+                       "scout": cfg.scout})
+
+    stub = None
+    if cfg.is_stub_run:
+        print("=" * 68)
+        print("STUB RUN -- canned responses, no model called. NOT A RESULT.")
+        print("In repo mode the stub cannot produce a real fix: the benchmark")
+        print("stub replays the task's known human patch, and your repo has no")
+        print("such thing. This exercises the plumbing and always ends in")
+        print("patch_apply_error. Use a real model to actually repair anything.")
+        print("=" * 68)
+        stub = _repo_stub(args)
+
+    grader = attempt_grader(task, WORKSPACES)
+    try:
+        row = run_one(task, cfg, run_dir, stub, args.max_attempts,
+                      events=events, grader=grader)
+    except WorkspaceError as exc:
+        print(f"\nWORKSPACE FAILURE: {exc}")
+        return 3
+
+    status = str(row.get("status", ""))
+    verdict = "pass" if status == "shipped" else (
+        "unverified" if status == "unverified" else "fail")
+
+    print("\n" + "=" * 68)
+    headline = {"shipped": "FIXED", "unverified": "UNVERIFIED"}.get(status, "NOT FIXED")
+    print(f"{headline}  attempts={row['attempts']}  "
+          f"failure={row['failure_type'] or '-'}  {row['wall_ms'] / 1000:.1f}s")
+    if status == "unverified":
+        print("  The suite is still green, but nothing here demonstrates a fix.")
+        print("  This is NOT reported as solved (rules.md §0).")
+
+    if args.branch or args.push or args.pr:
+        if verdict == "fail":
+            print("\nno branch: nothing to ship for a failed run")
+        else:
+            _ship(task, run_dir, verdict, row, args, shipping)
+
+    events.emit("run_finished", agent="orchestrator", task_arms=1)
+    print(f"artifacts: runs/{run_id}/")
+    return 0 if status == "shipped" else (2 if status == "unverified" else 1)
+
+
+def _final_patch(run_dir: Path, task_id: str) -> tuple[str, int]:
+    """The last patch that actually applied, straight off disk.
+
+    Read from the artifacts rather than carried in memory, so what gets
+    committed is provably the same bytes the tester graded.
+    """
+    base = run_dir / "tasks" / task_id / "attempts"
+    for n in sorted((int(d.name) for d in base.glob("*") if d.name.isdigit()),
+                    reverse=True):
+        diff = base / str(n) / "patch.diff"
+        if diff.is_file() and diff.read_text().strip():
+            return diff.read_text(), n
+    return "", 0
+
+
+def _ship(task, run_dir: Path, verdict: str, row: dict, args, shipping) -> None:
+    """Branch, commit, and -- only if explicitly asked -- push and open a PR.
+
+    Committing is local and harmless. Pushing and PR-opening write to somebody
+    else's repository, so they are separate flags and are never implied by a
+    successful run.
+    """
+    from engine.graph import WORKSPACES
+    from engine.repo.patch import apply_patch
+    from engine.repo.workspace import attempt_worktree
+
+    patch, attempt_n = _final_patch(run_dir, task.task_id)
+    if not patch:
+        print("\nno branch: no applied patch on disk to commit")
+        return
+
+    branch = shipping.branch_name(task.task_id, verdict)
+    title = ("fix: " if verdict == "pass" else "unverified: ") + args.issue.splitlines()[0][:72]
+    body = shipping.pr_body(task, verdict, str(row.get("failure_type") or ""),
+                            [], [], int(row.get("attempts", 0)))
+
+    with attempt_worktree(task.repo, task.base_commit, task.task_id,
+                          9000 + attempt_n, WORKSPACES, keep=True) as tree:
+        applied = apply_patch(patch, tree)
+        if not applied.ok:
+            print(f"\nno branch: the patch would not re-apply ({applied.error})")
+            return
+        res = shipping.commit_patch(tree, branch, task.default_branch, title)
+        print(f"\nbranch {branch}")
+        print(f"  commit {res.commit[:12]}  (base {task.default_branch})")
+        print(f"  tree   {tree}")
+
+        if not (args.push or args.pr):
+            print("  local only -- nothing was pushed. Add --push to send it.")
+            return
+
+        shipping.push_branch(tree, branch)
+        print(f"  pushed to origin/{branch}")
+        if args.pr:
+            url = shipping.open_pr(tree, branch, task.default_branch, title, body)
+            print(f"  pull request: {url or '(opened)'}")
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     """Turn run logs into the tables. The only source of reported numbers."""
     dirs = [Path(d) for d in args.run_dirs]
@@ -435,6 +613,24 @@ def main(argv: list[str] | None = None) -> int:
     batch.add_argument("--stub-failures", default="")
     batch.add_argument("--stub-reject", action="store_true")
     batch.set_defaults(func=cmd_run_batch)
+
+    repo = sub.add_parser("run-repo", help="repair a real GitHub repo (front door)")
+    repo.add_argument("--url", required=True, help="github.com/owner/name")
+    repo.add_argument("--issue", required=True, help="what is wrong, in prose")
+    repo.add_argument("--model", default=STUB_MODEL)
+    repo.add_argument("--run-id", default=None)
+    repo.add_argument("--max-attempts", type=int, default=None)
+    repo.add_argument("--no-scout", action="store_true")
+    repo.add_argument("--no-reviewer-gate", action="store_true")
+    repo.add_argument("--stub-failures", default="")
+    repo.add_argument("--stub-reject", action="store_true")
+    repo.add_argument("--branch", action="store_true",
+                      help="commit the fix to a local garage/ branch")
+    repo.add_argument("--push", action="store_true",
+                      help="WRITES TO THE REMOTE: push that branch")
+    repo.add_argument("--pr", action="store_true",
+                      help="WRITES TO THE REMOTE: open a pull request via gh")
+    repo.set_defaults(func=cmd_run_repo)
 
     rep = sub.add_parser("report", help="turn run logs into the M1-M3 tables")
     rep.add_argument("run_dirs", nargs="+", help="one or more runs/<id> paths")

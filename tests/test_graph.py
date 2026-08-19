@@ -367,3 +367,68 @@ def test_the_output_ceiling_leaves_room_for_thinking_and_a_diff() -> None:
     from engine.config import RunConfig
 
     assert RunConfig(run_id="x", task_ids=[]).max_completion_tokens >= 16_000
+
+
+# --- repo mode: "unverified" must never be mistaken for a fix --------------
+
+def _repo_run(cfg, stub, run_dir: Path, verdicts: list[str]):
+    """Drive the graph with an injected repo-style grader (no Docker)."""
+    from engine.graph import build_graph
+
+    seen = {"n": 0}
+
+    class _G:
+        def __init__(self, verdict):
+            self.verdict = verdict
+            self.resolved = verdict == "pass"
+            self.reason = "no_witness_test" if verdict == "unverified" else ""
+            self.log_tail = "suite green"
+            self.wall_ms = 1
+
+    def grader(state, attempt, run_dir):
+        i = seen["n"]
+        seen["n"] += 1
+        return _G(verdicts[min(i, len(verdicts) - 1)])
+
+    machine = build_graph(cfg, run_dir, stub, log=lambda *_: None, grader=grader)
+    return machine.invoke(_state(), {"recursion_limit": 40}), seen
+
+
+def test_an_unverified_patch_never_ships(harness) -> None:
+    """The suite stays green but nothing proves the change did anything.
+
+    Shipping this would be the engine telling someone who is asleep that their
+    bug is fixed when it has no idea. It must end as `unverified` -- not
+    `shipped`, and not `failed_tests` either, because both would be false.
+    """
+    make, run_dir = harness
+    cfg, _ = make(["pass"])            # the swebench grader is not used here
+    stub = StubBackend(scripts={"builder": builder_script(GOLD),
+                                "reviewer": reviewer_script()})
+    final, seen = _repo_run(cfg, stub, run_dir, ["unverified"])
+    assert final["status"] == "unverified"
+    assert final["failure_type"] == "unverified"
+    assert final["status"] != "shipped"
+
+
+def test_unverified_is_retried_like_a_failure(harness) -> None:
+    """It should ask the builder again -- most often what is missing is just
+    the witness test, which the builder can still add."""
+    make, run_dir = harness
+    cfg, _ = make(["pass"])
+    stub = StubBackend(scripts={"builder": builder_script(GOLD),
+                                "reviewer": reviewer_script()})
+    final, seen = _repo_run(cfg, stub, run_dir, ["unverified", "pass"])
+    assert final["status"] == "shipped"
+    assert len(final["attempts"]) == 2, "the unverified attempt should have retried"
+
+
+def test_repo_grader_replaces_the_benchmark_one_entirely(harness) -> None:
+    """With a grader injected, the SWE-bench harness must not be consulted."""
+    make, run_dir = harness
+    cfg, calls = make(["fail"])        # would fail if the benchmark grader ran
+    stub = StubBackend(scripts={"builder": builder_script(GOLD),
+                                "reviewer": reviewer_script()})
+    final, _ = _repo_run(cfg, stub, run_dir, ["pass"])
+    assert final["status"] == "shipped"
+    assert calls["n"] == 0, "the swebench grader was called in repo mode"

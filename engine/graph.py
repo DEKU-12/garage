@@ -91,6 +91,7 @@ def build_graph(
     stub: StubBackend | None = None,
     log: Callable[[str], None] = print,
     events: EventLog | None = None,
+    grader: Callable[[TaskState, dict[str, Any], Path], Any] | None = None,
 ) -> Any:
     """Compile the state machine for one RunConfig.
 
@@ -100,6 +101,10 @@ def build_graph(
     `events` is optional so the engine still runs headless (weeks 1-2 had no
     log at all). When present, every observable transition is emitted -- the UI
     reads nothing else (FR-18).
+
+    `grader` is how repo mode swaps in a verdict that does not depend on a
+    fail_to_pass list (engine/eval/repo_grader.py). Default is the SWE-bench
+    harness, so the benchmark path is byte-for-byte what it was.
     """
 
     def emit(type: str, agent: str = "system", task_id: str | None = None,
@@ -276,9 +281,12 @@ def build_graph(
         emit("agent_activated", "tester", state["task_id"], attempt=attempt["n"])
         emit("tests_run", "tester", state["task_id"], attempt=attempt["n"])
         try:
-            result = grade(state["task_id"], attempt["patch"],
-                           f"{cfg.run_id}_a{attempt['n']}", run_dir,
-                           image=state.get("image", ""))
+            if grader is not None:
+                result = grader(state, attempt, run_dir)
+            else:
+                result = grade(state["task_id"], attempt["patch"],
+                               f"{cfg.run_id}_a{attempt['n']}", run_dir,
+                               image=state.get("image", ""))
         except GradingInfraError as exc:
             log(f"  GRADING INFRA FAILURE: {exc}")
             emit("task_failed", "tester", state["task_id"],
@@ -379,6 +387,11 @@ def build_graph(
             return {}
         never_applied = all(not a.get("patch_applied") for a in attempts)
         failure = "patch_apply_error" if never_applied else "failed_tests"
+        last = attempts[-1] if attempts else {}
+        if last.get("test_verdict") == "unverified":
+            # Reported as itself. Never rounded up to a fix, never rounded down
+            # to a test failure -- both would be false.
+            failure = "unverified"
         emit("task_failed", "orchestrator", state["task_id"], reason=failure,
              attempts=len(attempts), usd=round(state.get("spend_usd", 0.0), 4))
         return {"status": failure, "failure_type": failure}
@@ -400,7 +413,8 @@ def build_graph(
     def correctness_retries_taken(state: TaskState) -> int:
         failures = sum(
             1 for a in state.get("attempts", [])
-            if not a.get("patch_applied") or a.get("test_verdict") == "fail"
+            if not a.get("patch_applied")
+            or a.get("test_verdict") in ("fail", "unverified")
         )
         return max(0, failures - 1)
 
@@ -416,7 +430,11 @@ def build_graph(
             return "fail"
         attempt = last_attempt(state)
         assert attempt is not None
-        if not attempt.get("patch_applied") or attempt.get("test_verdict") == "fail":
+        # "unverified" is not a pass. It means no regressions but nothing
+        # proving the change does anything -- so it retries like a failure, and
+        # if the retries run out it ends as itself rather than shipping.
+        if (not attempt.get("patch_applied")
+                or attempt.get("test_verdict") in ("fail", "unverified")):
             if correctness_retries_taken(state) < cfg.max_correctness_retries:
                 log(f"  retry {correctness_retries_taken(state) + 1}"
                     f"/{cfg.max_correctness_retries}")

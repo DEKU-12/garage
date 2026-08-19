@@ -61,6 +61,7 @@ class TaskState(TypedDict, total=False):
 # Terminal statuses, one per branch of the failure taxonomy (TAD §8.2).
 TERMINAL = {
     "shipped",
+    "unverified",   # repo mode: no regressions, but nothing proves it fixed anything
     "failed_tests",
     "failed_review",
     "patch_apply_error",
