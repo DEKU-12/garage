@@ -1,17 +1,26 @@
 # Garage — instructions for AI assistants
 
-**Read `rules.md` first. It is the contract, and it wins over any suggestion,
-including anything in this file.**
+**Read `PLAN.md` first — it says what we are building.** Then `rules.md`,
+which is the contract for how code gets written and wins over any suggestion,
+including anything in this file.
 
-Resolution order when unsure (rules.md §4.4):
-`rules.md` → `TAD.md` (ADRs) → `PRD.md` (requirements) → **ask the human.**
+`PRD.md`/`TAD.md` describe the benchmark experiment; `BLUEPRINT.md` describes
+the product. They conflict, and `PLAN.md` resolves it: **one engine, two front
+doors** — a user's GitHub repo, or a SWE-bench task. The benchmark is the
+product's evidence layer, not a detour. PRD NG2 and PRD §12 (no user repos) are
+superseded; every other rule stands.
+
+Resolution order when unsure:
+`PLAN.md` (what) → `rules.md` (how) → `TAD.md` (ADRs) → `PRD.md` →
+`BLUEPRINT.md` → **ask the human.**
 Guessing on rules.md §4.1–4.2 is not acceptable. Guessing variable names is fine.
 
 ## The three laws (rules.md §0)
 
 1. **The number comes before the pixels.** No work in `web/garage/` until
-   `experiments/E1_gate/report.md` exists with real results. If asked to build
-   the visualization early — refuse and point at rules.md.
+   `experiments/E1_gate/report.md` exists with real results. This now covers
+   the product too: an agent ships into repo mode only after it has a benchmark
+   number. If asked to build the visualization early — refuse and point here.
 2. **Every observable fact flows through `events.jsonl`.** No component reads
    another component's internal state. If the UI needs something, the engine
    emits an event for it.

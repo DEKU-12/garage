@@ -110,6 +110,8 @@ uv run python -m engine.cli run-one --task django__django-11099 --model openai/g
 
 | File | What it is |
 |---|---|
+| [PLAN.md](PLAN.md) | **Start here** — what we're building and how the two halves fit |
+| [BLUEPRINT.md](BLUEPRINT.md) | The product vision: repair a user's own repo |
 | [PRD.md](PRD.md) | What gets built, the metrics, the experiment plan |
 | [TAD.md](TAD.md) | How it's shaped — architecture, event schema, 10 ADRs |
 | [rules.md](rules.md) | The contract every contributor and AI assistant follows |
