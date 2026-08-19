@@ -478,3 +478,268 @@ off.
 Then the replay scrubber, which is the piece that actually matters for the
 overnight use case: nobody is watching at 3am, so the artefact you consume is
 the morning one.
+
+---
+
+## Week 5 — The replay scrubber
+
+**Goal:** make the *morning* artifact watchable. Nobody is awake at 3am, so the
+thing you actually consume is the recording.
+
+**Status: done.**
+
+### The problem, stated plainly
+
+The server hands over the whole log the moment your browser connects. For a
+live run that is right — you get everything that happened before you opened the
+tab, then the rest as it lands. For a *finished* run it meant the entire night
+arrived in one burst: the garage flickered once and sat at its end state. You
+could not see the work, only its aftermath.
+
+So the garage was, in practice, a live-only toy. Week 5 makes the recording the
+point.
+
+### What it does now
+
+A **tape** along the bottom — deliberately not a media player.
+
+- It **parks at the beginning** instead of racing to the end.
+- Play, pause, and 1x / 4x / 16x, running on *the run's own clock*. A stage
+  that really took 38 seconds takes 38 seconds at 1x, and just over two at 16x.
+- **Drag anywhere** and the scene reassembles at that instant — the right
+  mechanic at the right bench, the right attempt number, the right money spent.
+- Every verdict is a **notch**: green for a pass, red for a fail or a reject.
+  Click a red one and you land on that failure with the reviewer's actual words
+  open beside it.
+- The cumulative spend is drawn as a line across the same axis, so cost and
+  events share one timeline.
+- While you are scrubbing, the neon sign in the room reads **REPLAY**. The
+  scene and the chrome are never allowed to disagree about whether this is
+  happening now.
+
+### The idea that made it cheap
+
+**Scene state at any moment is a pure fold over `events[0..n]`.**
+
+To show you 21:17:57, the app throws the room away and replays the log from the
+first event up to that point with all animation switched off. No snapshots, no
+rewind logic, no "undo this event" code — which would have been a second
+implementation of every rule, and would have rotted.
+
+Forty-seven events fold in well under a millisecond. Twenty thousand would too.
+
+### The bugs
+
+**1. Six mechanics on a sofa.**
+*What it looked like:* the card said Kalia was building, and Kalia was sitting
+on the couch. Nobody was ever at a bench.
+*What was really wrong:* two things compounding. A mechanic walked home the
+instant `agent_done` landed — and the next stage begins in the same second, so
+they were recalled before arriving. And the walk itself was too slow: 508 px at
+95 px/s is 5.3 seconds, longer than most stages take to emit their events.
+*How it was fixed:* a mechanic now holds their post until somebody else is
+called up, and walking went to 300 px/s so the longest crossing lands in under
+two seconds.
+*Why it mattered:* the floor **is** the product. A view that never shows work
+happening is not a view of anything.
+
+**2. The car deleted itself.**
+*What it looked like:* nothing, on the first task. On the second, the car
+vanished the moment it reached its first station.
+*What was really wrong:* shipping sets an `exiting` flag so the car disappears
+once it is through the door. Nothing ever cleared it, so the next task's car
+met a stale instruction to vanish on arrival.
+*How it was fixed:* cleared when a task starts and when a run is opened.
+*Why it mattered:* no test would ever have caught this. It was found by
+watching the thing run twice.
+
+**3. The red notch lost a coin flip.**
+*What it looked like:* clicking a red notch opened a green pass.
+*What was really wrong:* the tests-pass and the review-reject that followed it
+are **four milliseconds apart**. On any tape narrow enough to fit a screen they
+are the same pixel, and snapping to "nearest in time" between two events in the
+same pixel is a coin flip.
+*How it was fixed:* snapping is in pixels now, and inside a pixel **red wins** —
+if a failure shares a pixel with a pass, the failure is what you asked for. The
+greens are also drawn first so a red is never hidden underneath one.
+*Why it mattered:* "click a red one to see why it failed" is the entire
+feature. Getting the wrong verdict half the time makes the tape a liar.
+
+### One rule worth naming
+
+**The fold must not animate.** Rebuilding a moment means replaying every event
+before it, and doing that with effects on would fire forty handoff arcs and a
+dozen stamps at once — wrong, and unwatchable. Every animated effect asks
+`quiet()` first and snaps instead. It is the same switch the
+reduced-motion setting uses, which is why there was somewhere obvious to put it.
+
+### What is still missing
+
+- Hovering a mechanic during replay was specified as a tooltip (FR-28). It
+  landed as a **click** on the roster card or any feed row instead — the
+  artifact opens, but there is no hover state yet.
+- At 1x, a night with long idle gaps plays those gaps in real time. The tape
+  lets you drag past them, but there is no skip-the-dead-air control.
+- The week-4 journal entry is still owed and is **not** written here; whoever
+  built that scene should write it, rather than have it reconstructed after the
+  fact from the diff.
+
+---
+
+## Week 6 — The repo front door, and pull requests
+
+**Goal:** point it at your own repo instead of a benchmark task, and have it
+open a pull request.
+
+**Status: built and tested, but not yet proven on a real repair.** Read the
+last section before believing anything here.
+
+### The whole difficulty, in one sentence
+
+A benchmark task ships the answer key — here are the tests that must flip from
+failing to passing. Your repo ships nothing of the kind.
+
+That single missing list is the entire problem. Without it, "did it work?" has
+no ground truth, and an engine with no ground truth will cheerfully report
+success for a patch that changed nothing. Which is a far worse failure than
+doing nothing at all, because you were asleep and you believed it.
+
+### What earns the word "fixed"
+
+Two things, together:
+
+1. **No regressions.** Every test that passed before still passes. Tests that
+   were *already* failing do not count against the patch — a repo that is
+   already red is still gradeable, as long as you know where it started.
+2. **A witness test.** The patch must add or change a test that **fails on the
+   unpatched code and passes on the patched code**. That is the only available
+   evidence that the change does something, and that the something is the thing
+   that was asked for.
+
+Checking the witness properly needs a trick: the test half of the diff is
+applied *without* the fix and run on its own. A "witness" that passes before
+the fix witnesses nothing.
+
+### The third outcome
+
+If nothing regressed but there is no witness, the result is **`unverified`**.
+Not a pass. Not a failure. Reported as itself, every time — in the console, in
+the branch name, in the pull request title and body, and as an amber notch on
+the replay tape.
+
+This mattered more than any other decision this week. `unverified` is the
+difference between *"I changed some code"* and *"I fixed your bug"*, and an
+overnight agent that blurs those two is not worth running.
+
+Suites that cannot name their individual failing tests — `npm test`, `go test`,
+`cargo test` — can still be checked for regressions by exit code, but can never
+produce a witness. So they top out at `unverified` **by construction**. That is
+a real limitation and it is stated at the top of every such run rather than
+hidden.
+
+### Refusing is a feature
+
+An unrecognised repo is refused, not guessed at. If there is no pytest, no
+`npm test` script, no `go.mod`, no `Cargo.toml`, the front door says so and
+stops. A run that cannot tell whether the tests passed cannot tell you anything,
+and a plausible default here would produce a green suite that never ran.
+
+Same for the branch: every write goes to a fresh `garage/fix-…` or
+`garage/unverified-…` branch, checked against the repo's *actual* trunk rather
+than a hardcoded "main". Pushing and opening a pull request are separate,
+explicit flags. A successful run never implies either — an agent that pushes to
+somebody's repository because it felt finished is a much worse failure than one
+that stops and waits.
+
+### The bugs
+
+Four, found by trying to run the thing rather than by reading it. The first
+three were embarrassing; the fourth was dangerous.
+
+**1. The URL the help text told you to type.**
+*What it looked like:* `--url github.com/benjaminp/six` refused as "not a
+GitHub repo URL" — the exact form the `--url` help advertises.
+*What was really wrong:* the pattern accepted `https://github.com/o/n` and bare
+`o/n`, but not the scheme-less middle case anyone would actually type.
+*Why it mattered:* the first five seconds of the first real use.
+
+**2. The stub had no fix to replay.**
+*What it looked like:* `AttributeError: 'RepoTask' object has no attribute
+'gold_patch'`.
+*What was really wrong:* the benchmark stub replays the task's *known human
+patch*. A real repo has no such thing, and there is no honest way to invent
+one. Repo mode now has its own stub that only ever produces responses that fail
+to apply — it exercises the builder loop, the retries and the caps, and can
+never reach the grader, which is correct: offline there is nothing to grade.
+
+**3. The grader read fields that did not exist.** `ApplyResult.ok` and
+`.error`, neither of which is what that dataclass calls them. Caught the moment
+a patch actually applied — which nothing before that point had ever done.
+
+**4. A patch that broke the build was reported as harmless.**
+*What it looked like:* a deliberately destructive patch — inverting `six.PY3`,
+which the whole library depends on — came back **`unverified`** with **zero**
+regressions. Unverified reads as "no harm done".
+*What was really wrong:* the patch broke `six.py` at import time, so
+`pip install -e .` failed, so **pytest never ran at all**. The output contained
+zero `FAILED` lines. The grader parsed zero failures, subtracted the baseline's
+zero, got zero regressions, and concluded nothing had gone wrong.
+
+*A suite that explodes and a suite that is clean produce the same number of
+failed tests.*
+
+*How it was fixed:* a run now has to prove it reported — for pytest that means
+a summary line (`N passed`, `N failed`, `no tests ran`). A non-zero exit with
+no report is `suite_broken`, a failure, checked *before* anything is counted.
+And if the *baseline* does not report, grading raises instead of returning a
+verdict: a repo whose own suite will not run on an untouched checkout gives
+nothing to compare against, and that is our problem, not the model's.
+
+*Why it mattered:* this is the same shape as bug #1 and bug #2 from the early
+weeks — the silent zero, where a catastrophic failure renders as "nothing
+wrong". It is the third time this project has been bitten by it. It is
+apparently the house bug.
+
+### Two near-misses, caught while wiring
+
+Neither reached a run, but both are the same shape, so they are worth writing
+down.
+
+**The unverified patch that would have shipped.** The router sends a failing
+patch back to the builder and everything else onward to review. `unverified`
+was neither, so it fell through the "everything else" branch straight to ship —
+the exact outcome the whole week exists to prevent, arriving through a code
+path nobody would think to look at. There is now a test whose only job is to
+fail if an unverified patch ever reaches `ship`.
+
+**The tape would have drawn it green.** The replay tape coloured every verdict
+that was not a failure green, so an `unverified` notch would have claimed a fix
+that was never demonstrated — the UI telling a lie the engine had carefully
+avoided. It is amber now, and the stamp says UNVERIFIED in words.
+
+### What is proven, and what is not
+
+**Proven, against real Docker and a real repo** (`benjaminp/six`), three
+scenarios, all correct:
+
+| scenario | verdict | why |
+|---|---|---|
+| fix + a test that fails before and passes after | `pass` | witness identified by name |
+| the same fix with no test | `unverified` | `no_witness_test` |
+| a patch that breaks the package | `fail` | `suite_broken` |
+
+Also proven live: cloning, default-branch resolution and suite detection on
+`benjaminp/six` and `pallets/itsdangerous`; the whole graph running end to end
+in repo mode under `--model stub`.
+
+**Still not proven:**
+
+- **No real model has ever repaired a real repo.** Every run so far used the
+  stub, which by construction cannot produce a patch that applies. The path
+  from "a real bug" to "a real fix" has not been walked once.
+- **No pull request has been opened.** Branch and commit are tested against a
+  real local git repo; `push` and `gh pr create` have never executed.
+- The container is **not network-isolated**, because installing dependencies
+  needs the network. Docker is the process boundary here, not a network jail.
+- Suite detection covers four shapes. A repo needing a database, a service, or
+  a bespoke toolchain will be refused — correctly, but refused.

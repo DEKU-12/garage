@@ -51,12 +51,12 @@ all three laws in `rules.md` §0, and `rules.md` §1–§6 in full.
 | 2 — the loop + the number | ✅ | **gate is worth +15 points**, measured |
 | 3 — event stream | ✅ | events.jsonl → FastAPI → live text feed |
 | 4 — the garage | ✅ | Pixi scene driven only by events |
-| next — replay scrubber | ❌ | **the overnight deliverable** |
-| then — repo front door | ❌ | clone any URL, grade by regression + witness test |
-| then — PR creation | ❌ | |
+| 5 — replay scrubber | ✅ | tape, fold-to-any-moment, verdict notches, artifact panel |
+| 6 — repo front door | 🟡 | 3 verdicts proven vs real Docker; no real-model repair yet |
+| 6 — branch / PR creation | 🟡 | branch+commit tested; push/PR never executed |
 | experiments E2/E3/E4 | ❌ | caps now fixed and ready |
 
-**119 tests, all green, all offline** (no network, no Docker, no API key).
+**162 tests, all green, all offline** (no network, no Docker, no API key).
 
 ### The headline result
 
@@ -228,13 +228,13 @@ against ~420k needed).
 
 ## 8. What to do next
 
-**1. Replay scrubber (FR-26–29).** The overnight artifact — nobody watches at
-3am. Drag across the night, verdict stamps as notches on the tape, click a red
-one to jump to the failure and see the patch. The reducer is a fold over
-`events[0..seq]`, and 20k events fold in milliseconds, so no snapshotting.
-Fixes the "replay is instant and looks static" gap.
+**1. Prove repo mode on one real bug.** Everything is built (`run-repo`), the
+front door clones and detects for real, and the verdict logic is covered — but
+no end-to-end repair has run, the grader's Docker path has never executed, and
+no PR has been opened. Until that happens the honest description is "the
+mechanism exists", not "it works".
 
-**2. Repo front door.** Clone any GitHub URL, detect the test command, build a
+**2. Repo front door — remaining.** Clone any GitHub URL, detect the test command, build a
 work queue. **The hard problem:** an arbitrary repo ships no `fail_to_pass`
 list, so grade on *no regressions* + a *witness test* the agent writes that
 fails before and passes after. No witness test → report **unverified**, never
