@@ -346,3 +346,24 @@ def test_spend_is_tracked_in_state_from_the_ledger(harness) -> None:
                                 "reviewer": reviewer_script()})
     final = _run(cfg, stub, run_dir)
     assert "spend_usd" in final
+
+
+def test_the_task_token_cap_cannot_undercut_the_retry_budget() -> None:
+    """A backstop that binds before the retry cap silently becomes the retry cap.
+
+    At 40k it cut the gate-ON arm to 3 builder runs where the design allows 5 --
+    throttling the only arm that retries, and biasing E1 against the very
+    mechanism it exists to measure.
+    """
+    from engine.config import RunConfig
+
+    cfg = RunConfig(run_id="x", task_ids=[])
+    worst_case_per_run = 25_000  # observed: ~8.5k prompt + up to 16k output
+    assert cfg.per_task_token_cap >= cfg.max_builder_runs * worst_case_per_run
+
+
+def test_the_output_ceiling_leaves_room_for_thinking_and_a_diff() -> None:
+    """Thinking is billed as output; a ceiling sized for a diff alone truncates."""
+    from engine.config import RunConfig
+
+    assert RunConfig(run_id="x", task_ids=[]).max_completion_tokens >= 16_000

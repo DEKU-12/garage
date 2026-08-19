@@ -41,7 +41,13 @@ class RunConfig(BaseModel):
     # FR-12: a token cap needs no price table, so budgets work from day one.
     # Checked at node entry, never mid-call: a task ends `budget_exceeded`,
     # which is a clean stop, not a crash.
-    per_task_token_cap: int = 40_000
+    #
+    # Must clear the termination proof with room to spare, or it silently
+    # becomes the binding retry limit instead of the backstop it is meant to
+    # be. At 40k it cut the gate-ON arm to 3 builder runs where the design
+    # allows 5 -- throttling the only arm that retries, and so biasing E1
+    # against the very thing it measures. 5 runs x ~25k is the real ceiling.
+    per_task_token_cap: int = 150_000
 
     # Deterministic repair of model hunk-header arithmetic (R3). A flag,
     # not a constant, so its contribution can be measured like any other.
