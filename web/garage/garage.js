@@ -5,42 +5,101 @@
  * were written to disk, which is what makes the promise "every animation
  * corresponds to a real backend event" structurally true rather than a claim.
  *
+ * Camera is a slight top-down overhead: the whole floor, the car's route and
+ * every mechanic stay visible at once, which is what replay needs.
+ *
  * Art is drawn programmatically rather than loaded from a sprite sheet. Kenney
  * CC0 sheets are the eventual source (DESIGN §8); until they are wired in there
  * is nothing to attribute and nothing to license.
  */
-const T = {                                   // DESIGN §2.1
-  ink0:0x12101A, ink1:0x1C1930, ink2:0x2A2545, ink3:0x3D3763,
-  paper:0xE8E4D8, paperDim:0x9B96A8, work:0xFFB13D,
-  pass:0x3DDC97, fail:0xFF5D5D, wire:0x5BC8F5,
+const T = {                                   // DESIGN §2.1 -- dark & cosy
+  // the four that carry MEANING and appear nowhere decorative (§2.2)
+  work:0xF0B24B, pass:0x46B46A, fail:0xD95A5A, wire:0x4D8FDB,
+  // the room
+  coal:0x211B19, walnut:0x4A382D, concrete:0x6D5B48, tan:0xB8A68B,
+  parchment:0xE8DAB9, warm:0xD8C18A,
+  // derived shades, all mixed from the six above -- no new hues invented
+  coalLift:0x2C2422, walnutLift:0x5C4736, concreteDark:0x584938,
+  concreteLift:0x7D6A54, tanDark:0x8E7F62, shadow:0x140F0E,
 };
 const W = 960, H = 540, TILE = 32;            // §4.1 logical stage
-const WALK_SPEED = 90;                        // px/s  §4.3
+const WALK_SPEED = 300;                       // px/s  §4.3. The longest walk is
+const CAR_SPEED = 210;                        // ~510px; replay fires events far
+                                              // faster than a live run, and a walk
+                                              // that cannot finish reads as nobody
+                                              // ever leaving the couch.
 const ARC_MS = 400, STAMP_MS = 600, MICRO_MS = 120;
 const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/* Stations. Each is a spot to stand plus the prop that identifies it in
- * silhouette (§4.2) -- the whole point is that you can tell who is working
- * without reading a label. */
+/* Scrubbing means rebuilding the scene at an arbitrary point by folding the
+ * log from the start (FR-27). That fold must not animate -- 400 handoff arcs
+ * and 40 stamps firing at once would be both wrong and unwatchable -- so every
+ * animated effect checks `quiet()` and snaps instead. */
+let SILENT = false;
+const quiet = () => SILENT || REDUCED;
+
+/* Stations. Each is a spot to STAND, the prop that identifies it in silhouette
+ * (§4.2), and the one word that pops over the mechanic's head while they work
+ * -- the popup is what lets someone read the floor without reading the feed. */
 const STATIONS = {
-  orchestrator: { x:118, y:196, label:"WHITEBOARD" },
-  scout:        { x:790, y:196, label:"FILING" },
-  builder:      { x:330, y:330, label:"BUILD DESK" },
-  tester:       { x:672, y:322, label:"TEST BENCH" },
-  reviewer:     { x:672, y:412, label:"WORKBENCH" },
-  scribe:       { x:672, y:486, label:"SIDE DESK" },
+  orchestrator: { x:152, y:214, label:"WHITEBOARD",   word:"PLAN",   car:{ x:250, y:250 } },
+  scout:        { x:392, y:214, label:"FILING BOXES", word:"FIND",   car:{ x:392, y:268 } },
+  builder:      { x:660, y:222, label:"BUILD DESK",   word:"BUILD",  car:{ x:596, y:274 } },
+  tester:       { x:672, y:452, label:"TEST BENCH",   word:"TEST",   car:{ x:600, y:398 } },
+  reviewer:     { x:404, y:452, label:"WORKBENCH",    word:"REVIEW", car:{ x:404, y:392 } },
+  scribe:       { x:118, y:352, label:"SIDE DESK",    word:"RECORD", car:{ x:236, y:352 } },
 };
-const COUCH = { x:150, y:452 };
-/* Idle agents sit on the couch in two rows of three. At 14px apart their name
- * tags -- which DESIGN §4.3 requires always-on, since nobody can guess who is
- * who -- overlapped into an unreadable smear. */
-const couchSeat = i => ({ x: 98 + (i % 3) * 64, y: 434 + Math.floor(i / 3) * 32 });
+const COUCH   = { x:150, y:474 };
+const CAR_HOME = { x:470, y:322 };            // the lift, dead centre
+const DOOR     = { x:906, y:250 };            // ship out, through the right wall
+
+/* Idle mechanics sit by the couch in two rows of three. At 14px apart their
+ * name tags -- which DESIGN §4.3 requires always-on, since nobody can guess
+ * who is who -- overlapped into an unreadable smear. */
+const couchSeat = i => ({ x: 84 + (i % 3) * 60, y: 446 + Math.floor(i / 3) * 46 });
 const AGENTS = ["orchestrator","scout","builder","tester","reviewer","scribe"];
-const SKIN = { orchestrator:0x8FB7E8, scout:0xE8C07D, builder:0xB79CE8,
-               tester:0x7DE8C0, reviewer:0xE89CB7, scribe:0xC0C0A8 };
+
+/* The crew's names. The engine's role ids (scout/builder/tester/...) are a
+ * CONTRACT -- events.py validates every event against that frozen set and the
+ * whole test suite speaks it -- so the renaming happens here in the view, the
+ * one place it costs nothing and can break nothing. */
+const DISPLAY = {
+  orchestrator:"Dholu", scout:"Bheem",    builder:"Kalia",
+  tester:"Raju",        reviewer:"Chutki", scribe:"Bholu",
+};
+const shown = k => DISPLAY[k] || k;
+
+/* Plain-English job descriptions for the crew panel. Written for someone who
+ * has never read the PRD -- the panel is the only place the scene explains
+ * what the six mechanics are actually for. */
+const ROLES = {
+  orchestrator: "Hands out the job and decides who works next.",
+  scout:        "Reads the repo and finds the files that actually matter.",
+  builder:      "Writes the fix, as a patch.",
+  tester:       "Runs the test suite in Docker and reports what broke.",
+  reviewer:     "Judges the patch, and can send it back to be redone.",
+  scribe:       "Keeps the record of what happened.",
+};
+
+/* Six bodies that must stay apart at 24x32. Silhouette does most of the work
+ * (width/height/hair), colour only confirms it -- a palette swap alone stops
+ * reading once two mechanics stand near the same lamp.
+ *
+ * NOTE ON SHIRT COLOURS: §2.2 reserves amber for "working now", so Kalia's
+ * hoodie and Raju's tee are pulled down to rust and ochre. Next to the actual
+ * --work amber they read as cloth, not as status. */
+const CHARS = {
+  orchestrator:{ role:"Foreman",  skin:0xC98D63, hair:0x241C18, shirt:0x3E6FA8, w:12, tall:28, prop:"clipboard" },
+  scout:       { role:"Scout",    skin:0xD2A06B, hair:0x1B1512, shirt:0x4E7A4A, w:15, tall:30, prop:"none" },
+  builder:     { role:"Builder",  skin:0xC98D63, hair:0x241C18, shirt:0xB0552A, w:19, tall:28, prop:"hood" },
+  tester:      { role:"Tester",   skin:0xE0B183, hair:0x241C18, shirt:0xB8863C, w:12, tall:24, prop:"cap" },
+  reviewer:    { role:"Reviewer", skin:0xE8BC90, hair:0x2A1F1A, shirt:0x6E5AA8, w:13, tall:27, prop:"ponytail" },
+  scribe:      { role:"Scribe",   skin:0xC98D63, hair:0x241C18, shirt:0x47708C, w:12, tall:26, prop:"glasses" },
+};
 
 const app = new PIXI.Application();
-let layers = {}, avatars = {}, lamps = {}, monitors = null, needle = null;
+let layers = {}, avatars = {}, lamps = {}, bubbles = {};
+let monitors = null, needle = null, car = null;
 let neon = null, dimmer = null, tally = null, chalk = null;
 const flying = [];   // in-flight handoff papers
 let shake = 0, freezeUntil = 0;
@@ -51,112 +110,264 @@ function pixelRect(g, x, y, w, h, color, alpha = 1) {
   g.rect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)).fill({ color, alpha });
 }
 
-function buildFloor() {
-  const g = new PIXI.Graphics();
-  pixelRect(g, 0, 0, W, H, T.ink0);                       // void
-  pixelRect(g, 0, 0, W, 150, T.ink2);                     // back wall
-  pixelRect(g, 0, 150, W, H - 150, T.ink1);               // floor
-  // garage door: slats, closed
-  pixelRect(g, 40, 22, 300, 118, T.ink3);
-  for (let y = 30; y < 138; y += 12) pixelRect(g, 44, y, 292, 6, T.ink2);
-  pixelRect(g, 168, 104, 44, 12, T.ink1);                 // mail slot -- ships fly out here
-  // floor tape + cables (§4.2 ambient props)
-  for (let x = 20; x < W - 20; x += 26) pixelRect(g, x, H - 26, 14, 3, T.ink3, .55);
-  for (let x = 0; x < W; x += TILE) pixelRect(g, x, 150, 1, H - 150, T.ink2, .35);
-  return g;
+/* A prop seen from slightly above: dark base, lit top face, coal outline. The
+ * outline is what stops everything dissolving into one brown smear -- at this
+ * palette's contrast, shape has to be carried by the edge, not the fill. */
+function prop(g, x, y, w, h, face, top = null, lip = 5) {
+  pixelRect(g, x - 1, y - 1, w + 2, h + 2, T.coal);
+  pixelRect(g, x, y, w, h, face);
+  if (top !== null) pixelRect(g, x, y, w, lip, top);
 }
 
-function label(text, x, y, size = 8, color = T.paperDim) {
+function label(text, x, y, size = 8, color = T.tan) {
   const t = new PIXI.Text({ text, style: {
     fontFamily: "Silkscreen, monospace", fontSize: size, fill: color, letterSpacing: 1 } });
   t.x = Math.round(x - t.width / 2); t.y = Math.round(y);
   return t;
 }
 
+function buildFloor() {
+  const g = new PIXI.Graphics();
+  pixelRect(g, 0, 0, W, H, T.coal);                        // void beyond the walls
+
+  // concrete floor, grouted on the tile grid with a lifted checker so the
+  // room has texture without any prop on it
+  pixelRect(g, 24, 96, W - 48, H - 120, T.concrete);
+  for (let y = 96; y < H - 24; y += TILE)
+    for (let x = 24; x < W - 24; x += TILE)
+      if (((x / TILE | 0) + (y / TILE | 0)) % 2)
+        pixelRect(g, x, y, TILE, TILE, T.concreteLift, .22);
+  for (let x = 24; x <= W - 24; x += TILE) pixelRect(g, x, 96, 1, H - 120, T.concreteDark, .5);
+  for (let y = 96; y <= H - 24; y += TILE) pixelRect(g, 24, y, W - 48, 1, T.concreteDark, .5);
+
+  // back wall + walnut beam along its foot
+  pixelRect(g, 24, 24, W - 48, 72, T.coalLift);
+  pixelRect(g, 24, 88, W - 48, 8, T.walnut);
+  for (let x = 60; x < W - 60; x += 128) pixelRect(g, x, 24, 10, 64, T.walnut, .55);
+  // side walls
+  pixelRect(g, 0, 0, 24, H, T.coal); pixelRect(g, W - 24, 0, 24, H, T.coal);
+  pixelRect(g, 0, 0, W, 24, T.coal); pixelRect(g, 0, H - 24, W, 24, T.coal);
+
+  // the roller door, right wall -- finished work leaves through the mail slot
+  prop(g, 856, 132, 78, 232, T.walnut, T.walnutLift, 0);
+  for (let y = 140; y < 356; y += 14) pixelRect(g, 862, y, 66, 7, T.coalLift, .55);
+  pixelRect(g, 872, 236, 46, 12, T.coal);                  // mail slot
+  pixelRect(g, 874, 238, 42, 8, T.concreteDark);
+  prop(g, 846, 100, 96, 20, T.parchment, null, 0);         // SHIP OUT sign
+
+  // the lift bay the car parks on
+  pixelRect(g, 388, 268, 168, 108, T.concreteDark, .75);
+  for (let x = 388; x < 556; x += 16) pixelRect(g, x, 268, 8, 4, T.work, .5);
+  for (let x = 388; x < 556; x += 16) pixelRect(g, x, 372, 8, 4, T.work, .5);
+
+  // floor cables snaking out of the build desk
+  for (let x = 600; x < 840; x += 22) pixelRect(g, x, 300, 12, 3, T.coal, .6);
+  return g;
+}
+
 function buildStations(root) {
   const g = new PIXI.Graphics();
 
-  // whiteboard -- carries the loop diagram in chalk, and the retry tally
-  pixelRect(g, 56, 168, 124, 78, T.paper, .93);
-  pixelRect(g, 56, 168, 124, 78, T.ink3, .0);
-  // filing boxes + hanging flashlight
-  pixelRect(g, 748, 176, 44, 34, 0x6E5B3E); pixelRect(g, 796, 186, 40, 24, 0x5C4B33);
-  pixelRect(g, 764, 156, 4, 20, T.ink3);
-  // build desk: three monitors, the only lit screens in the room
-  pixelRect(g, 262, 296, 140, 8, T.ink3);
-  pixelRect(g, 268, 260, 40, 32, T.ink0); pixelRect(g, 312, 258, 40, 34, T.ink0);
-  pixelRect(g, 356, 260, 40, 32, T.ink0);
-  // test bench + oscilloscope
-  pixelRect(g, 612, 300, 120, 8, T.ink3);
-  pixelRect(g, 620, 268, 44, 32, T.ink0);
-  // workbench: pegboard + the ladder (the ponytail pun, §4.2)
-  pixelRect(g, 612, 392, 120, 6, T.ink3);
-  for (let y = 356; y < 392; y += 9) pixelRect(g, 742, y, 26, 3, T.ink3);
-  // side desk: typewriter
-  pixelRect(g, 620, 470, 96, 6, T.ink3); pixelRect(g, 640, 456, 30, 14, T.ink2);
-  // couch + pizza box
-  pixelRect(g, 66, 424, 196, 62, T.ink2); pixelRect(g, 66, 412, 196, 14, T.ink3);
-  pixelRect(g, 272, 462, 26, 16, 0x8A6B4A);   // pizza box
+  // 1 whiteboard -- the plan loop, in chalk
+  prop(g, 60, 118, 180, 92, T.parchment, null);
+  pixelRect(g, 60, 118, 180, 7, T.walnut);
+  const chalkC = 0x8C8375;
+  [[86,152,34,3],[150,152,34,3],[86,192,34,3],[150,192,34,3]].forEach(([x,y,w,h]) =>
+    pixelRect(g, x, y, w, h, chalkC));          // PLAN -> FIND / REVIEW <- TEST
+  pixelRect(g, 128, 153, 18, 2, chalkC); pixelRect(g, 128, 193, 18, 2, chalkC);
+  pixelRect(g, 100, 158, 2, 30, chalkC); pixelRect(g, 182, 158, 2, 30, chalkC);
+  pixelRect(g, 118, 170, 44, 2, chalkC); pixelRect(g, 158, 166, 6, 10, chalkC);
+  // 2 filing boxes + shelving
+  prop(g, 316, 132, 54, 40, T.tanDark, T.tan);
+  prop(g, 374, 146, 46, 34, T.tanDark, T.tan);
+  prop(g, 322, 176, 44, 30, T.tanDark, T.tan);
+  pixelRect(g, 300, 120, 6, 22, T.coal);                   // hanging flashlight cord
+  pixelRect(g, 294, 142, 18, 10, T.tan);
+  // 3 build desk -- three monitors, the only lit screens in the room
+  prop(g, 566, 176, 196, 30, T.walnut, T.walnutLift);
+  prop(g, 574, 128, 58, 44, T.coal, null);
+  prop(g, 638, 122, 58, 50, T.coal, null);
+  prop(g, 702, 128, 58, 44, T.coal, null);
+  // 4 test bench + oscilloscope + the stamp block
+  prop(g, 566, 384, 212, 34, T.walnut, T.walnutLift);
+  prop(g, 576, 344, 66, 42, T.coal, null);                 // scope housing
+  prop(g, 712, 348, 34, 38, T.tanDark, T.tan);             // the stamp, resting
+  // 5 workbench: pegboard of tools + the ladder leaning beside it (§4.2 pun)
+  prop(g, 300, 380, 208, 34, T.walnut, T.walnutLift);
+  prop(g, 306, 316, 196, 62, T.walnutLift, null);
+  for (let y = 326; y < 372; y += 12)
+    for (let x = 316; x < 494; x += 18) pixelRect(g, x, y, 8, 6, T.tanDark, .85);
+  for (let y = 320; y < 412; y += 16) pixelRect(g, 520, y, 30, 4, T.tan);   // ladder rungs
+  pixelRect(g, 518, 316, 4, 100, T.tan); pixelRect(g, 546, 316, 4, 100, T.tan);
+  // 6 side desk: typewriter + mug
+  prop(g, 44, 322, 132, 30, T.walnut, T.walnutLift);
+  prop(g, 66, 296, 46, 28, T.tanDark, T.tan);
+  pixelRect(g, 128, 306, 12, 14, T.parchment);
+  // couch + pizza box + rug
+  pixelRect(g, 46, 424, 232, 92, T.walnut, .35);           // rug
+  prop(g, 54, 430, 216, 62, 0x4C5A3C, 0x63734F);
+  prop(g, 62, 418, 200, 16, 0x3E4A32, null, 0);
+  prop(g, 214, 470, 40, 22, T.tan, T.parchment);           // pizza box
   // bin, for crumpled failures
-  pixelRect(g, 268, 430, 22, 28, T.ink3, .8);
+  prop(g, 812, 434, 42, 46, T.tanDark, T.tan);
+  for (let i = 0; i < 5; i++)                                   // crumpled paper
+    pixelRect(g, 800 + (i * 17) % 62, 484 + (i % 2) * 9, 7, 6, T.parchment, .65);
+
+  // wall furniture: pipes, clock, breaker box, SHIP OUT sign
+  pixelRect(g, 24, 40, W - 48, 6, T.walnutLift, .5);
+  for (let x = 120; x < W - 80; x += 96) pixelRect(g, x, 40, 8, 14, T.walnut);
+  prop(g, 300, 46, 24, 24, T.tanDark, T.tan);                   // clock
+  pixelRect(g, 310, 52, 2, 8, T.coal); pixelRect(g, 312, 58, 7, 2, T.coal);
+  prop(g, 792, 44, 34, 30, T.walnut, T.walnutLift);             // breaker box
+  pixelRect(g, 800, 52, 8, 6, T.pass, .8); pixelRect(g, 812, 52, 8, 6, T.work, .8);
+
+  // potted plants, one each side of the couch
+  [[36, 400], [286, 452]].forEach(([x, y]) => {
+    prop(g, x, y + 18, 22, 18, T.tanDark, T.tan);
+    pixelRect(g, x + 4, y, 14, 20, 0x4C6B3C);
+    pixelRect(g, x + 1, y + 6, 8, 12, 0x3E5A31);
+    pixelRect(g, x + 13, y + 4, 8, 14, 0x5A7A46);
+  });
+
+  // desk clutter: mugs and a toolbox
+  pixelRect(g, 556, 164, 10, 12, T.tan); pixelRect(g, 566, 167, 3, 5, T.tan);
+  pixelRect(g, 286, 370, 10, 12, T.tan); pixelRect(g, 296, 373, 3, 5, T.tan);
+  prop(g, 214, 372, 46, 26, 0x8C3B2E, 0xA34838);                // red toolbox
+  pixelRect(g, 228, 368, 18, 5, T.coal);
   root.addChild(g);
 
   for (const [name, s] of Object.entries(STATIONS)) {
-    root.addChild(label(s.label, s.x, s.y + 26, 8));
+    root.addChild(label(s.label, s.x, s.y + 30, 8, T.parchment));
     const lamp = new PIXI.Graphics();          // §2.2: only ONE glows at a time
-    pixelRect(lamp, s.x - 16, s.y - 44, 32, 4, T.work);
+    pixelRect(lamp, s.x - 20, s.y - 54, 40, 5, T.work);
+    pixelRect(lamp, s.x - 14, s.y - 49, 28, 4, T.work, .45);
+    pixelRect(lamp, s.x - 8, s.y - 45, 16, 4, T.work, .2);
     lamp.alpha = 0;
     root.addChild(lamp);
     lamps[name] = lamp;
   }
 
-  monitors = new PIXI.Graphics();
-  root.addChild(monitors);
-  needle = new PIXI.Graphics();
-  root.addChild(needle);
+  root.addChild(label("SHIP OUT", 894, 104, 8, 0x2A211C));
+  root.addChild(label("MAIL SLOT", 894, 254, 7, T.parchment));
 
-  // neon sign -- the one permitted gradient lives here (§2.2)
+  monitors = new PIXI.Graphics();  root.addChild(monitors);
+  needle   = new PIXI.Graphics();  root.addChild(needle);
+
+  // neon sign -- the one permitted glow lives here (§2.2)
   neon = new PIXI.Text({ text: "THE GARAGE", style: {
-    fontFamily: "Silkscreen, monospace", fontSize: 22, fill: T.work } });
-  neon.x = 660; neon.y = 52; neon.alpha = .9;
+    fontFamily: "Silkscreen, monospace", fontSize: 26, fill: T.warm, letterSpacing: 2 } });
+  neon.x = 390; neon.y = 44; neon.alpha = .92;
   root.addChild(neon);
 
   chalk = new PIXI.Text({ text: "", style: {
-    fontFamily: "IBM Plex Mono, monospace", fontSize: 9, fill: T.ink1,
-    wordWrap: true, wordWrapWidth: 112 } });
-  chalk.x = 62; chalk.y = 174;
+    fontFamily: "IBM Plex Mono, monospace", fontSize: 9, fill: 0x4A423A,
+    wordWrap: true, wordWrapWidth: 166 } });
+  chalk.x = 68; chalk.y = 130;
   root.addChild(chalk);
 
   tally = new PIXI.Text({ text: "", style: {
-    fontFamily: "Silkscreen, monospace", fontSize: 11, fill: T.ink1 } });
-  tally.x = 62; tally.y = 226;
+    fontFamily: "Silkscreen, monospace", fontSize: 11, fill: 0x4A423A } });
+  tally.x = 68; tally.y = 186;
   root.addChild(tally);
 }
 
-function makeAvatar(name) {
+/* --------------------------------------------------------------- the car */
+
+/* The job itself, made physical. A task arriving is a car rolling onto the
+ * lift; a task shipping is the car leaving through the door. It is the one
+ * object on the floor that a viewer can follow without knowing anything. */
+function makeCar() {
   const c = new PIXI.Container();
   const g = new PIXI.Graphics();
-  pixelRect(g, -6, -26, 12, 14, SKIN[name]);      // head
-  pixelRect(g, -8, -12, 16, 14, T.ink3);          // body
-  pixelRect(g, -7, 2, 5, 8, T.ink3);              // legs
-  pixelRect(g, 2, 2, 5, 8, T.ink3);
-  // one distinguishing prop each (§4.3)
-  if (name === "scout")   pixelRect(g, -7, -28, 14, 3, T.work);        // headlamp
-  if (name === "builder") pixelRect(g, -7, -28, 14, 5, 0x6E5BA8);      // hood
-  if (name === "tester")  pixelRect(g, -7, -22, 14, 3, T.wire);        // safety glasses
-  if (name === "reviewer")pixelRect(g, -9, -12, 3, 8, SKIN[name]);     // rolled sleeve
-  if (name === "scribe")  pixelRect(g, -8, -13, 16, 4, 0xC96A6A);      // scarf
-  if (name === "orchestrator") pixelRect(g, 5, -26, 3, 8, T.work);     // marker
+  pixelRect(g, -21, 4, 42, 5, T.shadow, .3);
+  prop(g, -20, -12, 40, 20, 0x9B3B2E, 0xB8483A, 6);
+  prop(g, -12, -20, 24, 10, T.parchment, null, 0);
+  pixelRect(g, -18, -13, 36, 3, 0x7A2C22);
+  pixelRect(g, -22, -8, 4, 8, T.coal); pixelRect(g, 18, -8, 4, 8, T.coal);
+  pixelRect(g, 17, -11, 5, 4, T.work);        // headlamps -- the car is running
+  pixelRect(g, -22, -11, 5, 4, T.work);
   c.addChild(g);
-  // Short tags: six full names at 8px collided even at 58px spacing. DESIGN
-  // §4.3 wants them always visible, so shrink the text rather than hide it.
-  const tag = label(name.slice(0, 6), 0, 8, 7, T.paperDim);
-  c.addChild(tag);
+  c.x = CAR_HOME.x; c.y = CAR_HOME.y;
+  c.visible = false;
+  return c;
+}
+
+/* --------------------------------------------------------------- avatars */
+
+function makeAvatar(name) {
+  const ch = CHARS[name];
+  const c = new PIXI.Container();
+  const g = new PIXI.Graphics();
+  const w = ch.w, top = -ch.tall;
+
+  pixelRect(g, -w / 2 - 1, 3, w + 2, 4, T.shadow, .32);          // ground shadow
+  pixelRect(g, -w / 2 + 1, -8, 4, 11, 0x2E2A26);                 // legs
+  pixelRect(g, w / 2 - 5, -8, 4, 11, 0x2E2A26);
+  pixelRect(g, -w / 2 - 1, top + 9, w + 2, 20, T.coal);          // torso outline
+  pixelRect(g, -w / 2, top + 10, w, 18, ch.shirt);               // torso
+  pixelRect(g, -w / 2 - 3, top + 12, 3, 11, ch.shirt);           // arms
+  pixelRect(g, w / 2, top + 12, 3, 11, ch.shirt);
+  pixelRect(g, -w / 2 - 3, top + 22, 3, 4, ch.skin);             // hands
+  pixelRect(g, w / 2, top + 22, 3, 4, ch.skin);
+  pixelRect(g, -6, top - 1, 12, 13, T.coal);                     // head outline
+  pixelRect(g, -5, top, 10, 11, ch.skin);                        // face
+  pixelRect(g, -3, top + 4, 2, 2, T.coal); pixelRect(g, 1, top + 4, 2, 2, T.coal);
+  pixelRect(g, -6, top - 3, 12, 6, ch.hair);                     // hair
+
+  // one signature prop each (§4.3) -- the tell that survives at this size
+  if (ch.prop === "cap") {
+    pixelRect(g, -7, top - 4, 14, 5, T.fail);                    // Raju's cap
+    pixelRect(g, 5, top - 1, 5, 3, T.fail);
+  }
+  if (ch.prop === "ponytail") {
+    pixelRect(g, 5, top - 2, 4, 13, ch.hair);                    // Chutki
+    pixelRect(g, 7, top + 6, 3, 6, ch.hair);
+  }
+  if (ch.prop === "glasses") {
+    pixelRect(g, -6, top + 3, 12, 1, T.tan);                     // Bholu
+    pixelRect(g, -4, top + 3, 3, 3, T.parchment, .8);
+    pixelRect(g, 1, top + 3, 3, 3, T.parchment, .8);
+  }
+  if (ch.prop === "hood") pixelRect(g, -8, top - 4, 16, 8, 0x8C4322);   // Kalia
+  if (ch.prop === "clipboard") pixelRect(g, w / 2 + 1, top + 15, 6, 8, T.parchment);
+  if (ch.prop === "none") pixelRect(g, -w / 2, top + 10, w, 3, 0x3E6038); // Bheem's collar
+  c.addChild(g);
+
+  // Role ids had to be truncated to 6 chars to stop the couch tags colliding.
+  // The crew names are all <=6 already, so DESIGN §4.3's always-visible tag
+  // finally gets to show the whole name -- on a parchment backer, because tan
+  // text on concrete is the one pairing in this palette that fails to read.
+  const tagWrap = new PIXI.Container();
+  const t = label(shown(name), 0, 0, 7, 0x2A211C);
+  const back = new PIXI.Graphics();
+  pixelRect(back, t.x - 3, -2, t.width + 6, 11, T.parchment, .92);
+  tagWrap.addChild(back); tagWrap.addChild(t);
+  tagWrap.y = 8;
+  c.addChild(tagWrap);
+
   const glow = new PIXI.Graphics();
-  pixelRect(glow, -12, 8, 24, 4, T.work, .5);
+  pixelRect(glow, -14, 6, 28, 4, T.work, .55);
   glow.alpha = 0;
   c.addChildAt(glow, 0);
   c.glow = glow;
+  return c;
+}
+
+/* The one- or two-word popup over whoever is working. This is the piece that
+ * makes the floor readable on its own: PLAN / FIND / BUILD / TEST / REVIEW /
+ * RECORD says what the real software is doing right now, with no feed. */
+function makeBubble(name) {
+  const s = STATIONS[name];
+  const c = new PIXI.Container();
+  const t = label(s.word, 0, 3, 9, 0x2A211C);
+  const g = new PIXI.Graphics();
+  const w = t.width + 12, h = 16;
+  pixelRect(g, -w / 2 - 1, -1, w + 2, h + 2, T.coal);
+  pixelRect(g, -w / 2, 0, w, h, T.parchment);
+  pixelRect(g, -3, h, 6, 4, T.parchment);
+  pixelRect(g, -3, h + 4, 6, 1, T.coal);
+  c.addChild(g); c.addChild(t);
+  c.visible = false;
   return c;
 }
 
@@ -165,30 +376,48 @@ function makeAvatar(name) {
 function walkTo(name, x, y) {
   const a = avatars[name];
   a.target = { x, y };
-  if (REDUCED) { a.x = x; a.y = y; }             // §6: walks become instant
+  if (quiet()) { a.x = x; a.y = y; a.target = null; }   // §6 / the fold
 }
 
-function throwPaper(fromKey, toKey, color = T.paper) {
-  if (REDUCED) return;
+function driveTo(x, y) {
+  car.visible = true;
+  car.target = { x, y };
+  if (quiet()) { car.x = x; car.y = y; car.target = null; }
+}
+
+function throwPaper(fromKey, toKey, color = T.parchment) {
+  if (quiet()) return;
   const from = fromKey === "couch" ? COUCH : STATIONS[fromKey];
   const to   = toKey === "couch" ? COUCH : STATIONS[toKey];
   if (!from || !to) return;
   const g = new PIXI.Graphics();
+  pixelRect(g, -5, -4, 10, 8, T.coal);
   pixelRect(g, -4, -3, 8, 6, color);
-  g.x = from.x; g.y = from.y - 20;
+  g.x = from.x; g.y = from.y - 26;
   layers.fx.addChild(g);
-  flying.push({ g, t: 0, from: { x: from.x, y: from.y - 20 }, to: { x: to.x, y: to.y - 20 } });
+  flying.push({ g, t: 0, from: { x: from.x, y: from.y - 26 }, to: { x: to.x, y: to.y - 26 } });
 }
 
 /* The signature element (§4.5). The one screen shake and the one time-freeze
  * in the entire project -- spent here because the eval gate is the project's
  * whole identity, so a verdict cannot be a toast notification. */
+/* Repo mode's third outcome gets its own word on the stamp. "UNVERIFIED" is
+ * long, so it stamps smaller -- but it stamps, because a viewer must never
+ * have to guess which of the three happened. */
+function verdictWord(p) {
+  if (p.verdict === "unverified") return "UNVERIFIED";
+  if (p.verdict === "pass" || p.verdict === "accept") return "PASS";
+  return p.gate === "review" ? "REJECT" : "FAIL";
+}
+
 function slamStamp(text, ok) {
+  if (SILENT) return;                            // folding, not playing
   const wrap = new PIXI.Container();
-  wrap.x = STATIONS.tester.x; wrap.y = STATIONS.tester.y - 40;
+  wrap.x = CAR_HOME.x; wrap.y = CAR_HOME.y - 30;
+  const unver = text === "UNVERIFIED";
   const t = new PIXI.Text({ text, style: {
-    fontFamily: "Silkscreen, monospace", fontSize: 48,
-    fill: ok ? T.pass : T.fail } });
+    fontFamily: "Silkscreen, monospace", fontSize: unver ? 30 : 48,
+    fill: unver ? T.work : (ok ? T.pass : T.fail) } });
   t.anchor.set(.5); t.rotation = -6 * Math.PI / 180;
   wrap.addChild(t);
   wrap.scale.set(REDUCED ? 1 : 2.2);
@@ -196,13 +425,22 @@ function slamStamp(text, ok) {
   layers.fx.addChild(wrap);
   wrap.stampT = 0;
   wrap.isStamp = true;
-  if (!REDUCED) { freezeUntil = performance.now() + MICRO_MS; shake = 2; }
+  if (!quiet()) { freezeUntil = performance.now() + MICRO_MS; shake = 2; }
   setTimeout(() => wrap.destroy(), STAMP_MS + 500);
 }
 
 function setWorkLamp(name) {                     // §2.2: singular --work glow
   for (const [k, lamp] of Object.entries(lamps)) lamp.alpha = k === name ? 1 : 0;
   for (const [k, a] of Object.entries(avatars)) a.glow.alpha = k === name ? 1 : 0;
+  for (const [k, b] of Object.entries(bubbles)) b.visible = k === name;
+  // the crew cards follow the same singular rule, so the roster also answers
+  // "who is working right now" without the viewer hunting for the lit lamp
+  for (const k of AGENTS) {
+    for (const id of ["who-", "card-"]) {
+      const el = document.getElementById(id + k);
+      if (el) el.classList.toggle("on", k === name);
+    }
+  }
 }
 
 /* -------------------------------------------------------------- reducer */
@@ -217,19 +455,25 @@ function applyToScene(e) {
       S.task = e.task_id; S.attempt = "—"; S.tests = []; S.review = []; S.retries = 0;
       chalk.text = (e.task_id || "").replace(/__/g, " ");
       tally.text = "";
-      if (!REDUCED) { dimmer.alpha = .1; setTimeout(() => dimmer.alpha = 0, MICRO_MS); }
+      car.x = 860; car.y = CAR_HOME.y; car.exiting = false;          // rolls in through the door
+      driveTo(CAR_HOME.x, CAR_HOME.y);
+      if (!quiet()) { dimmer.alpha = .1; setTimeout(() => dimmer.alpha = 0, MICRO_MS); }
       break;
     case "agent_activated": {
       const s = STATIONS[e.agent];
-      if (s) { walkTo(e.agent, s.x, s.y); setWorkLamp(e.agent); S.active = e.agent; }
+      if (s) {
+        if (S.active && S.active !== e.agent) {  // the last one heads home now
+          const seat = couchSeat(AGENTS.indexOf(S.active));
+          walkTo(S.active, seat.x, seat.y);
+        }
+        walkTo(e.agent, s.x, s.y); setWorkLamp(e.agent); S.active = e.agent;
+        driveTo(s.car.x, s.car.y);              // the job follows the mechanic
+      }
       if (p.attempt) S.attempt = p.attempt;
       break;
     }
-    case "agent_done": {
-      const seat = couchSeat(AGENTS.indexOf(e.agent));
-      walkTo(e.agent, seat.x, seat.y);
-      break;
-    }
+    case "agent_done":
+      break;                                     // holds the post; see above
     case "handoff":       throwPaper(e.agent, p.to); break;
     case "context_pack_ready": throwPaper("scout", "builder"); break;
     case "patch_produced":     throwPaper("builder", "tester"); break;
@@ -238,7 +482,7 @@ function applyToScene(e) {
     case "gate_verdict": {
       const ok = p.verdict === "pass" || p.verdict === "accept";
       (p.gate === "tests" ? S.tests : S.review).push(p.verdict);
-      slamStamp(ok ? "PASS" : (p.gate === "review" ? "REJECT" : "FAIL"), ok);
+      slamStamp(verdictWord(p), ok);
       if (!ok) throwPaper("tester", "builder", T.fail);
       break;
     }
@@ -247,21 +491,37 @@ function applyToScene(e) {
       tally.text = "|".repeat(S.retries).replace(/(\|{5})/g, "$1 ");
       break;
     case "shipped":
-      S.shipped++; throwPaper("tester", "orchestrator", T.pass);
+      S.shipped++; driveTo(DOOR.x, DOOR.y);     // out through the door
+      car.exiting = true;
       neon.tint = T.pass; setTimeout(() => neon.tint = 0xFFFFFF, 500);
       break;
     case "task_failed":
       S.failed++; chalk.text += "\n✗ " + (p.reason || "failed");
+      driveTo(834, 452);                        // parked by the bin
       break;
     case "budget_exceeded":
       dimmer.alpha = .6; break;                  // the lamp physically dims (§4.4)
     case "cost_tick":
       if (typeof p.usd === "number") S.spend = p.usd; break;
+    case "run_finished":
+      AGENTS.forEach((n, i) => { const st = couchSeat(i); walkTo(n, st.x, st.y); });
+      setWorkLamp(null); S.active = null;
+      break;
     // unknown types: ignored on purpose (schema v:1 forward compatibility)
   }
 }
 
 /* ---------------------------------------------------------------- ticker */
+
+function moveToward(o, speed, dt) {
+  if (!o.target) return;
+  const dx = o.target.x - o.x, dy = o.target.y - o.y;
+  const d = Math.hypot(dx, dy);
+  if (d < 1.5) { o.x = o.target.x; o.y = o.target.y; o.target = null; return; }
+  const step = Math.min(d, speed * dt);
+  o.x = Math.round(o.x + (dx / d) * step);
+  o.y = Math.round(o.y + (dy / d) * step);
+}
 
 function tick(ticker) {
   const now = performance.now();
@@ -269,14 +529,16 @@ function tick(ticker) {
   if (now < freezeUntil) return;                 // the world waits for the gate
 
   for (const [name, a] of Object.entries(avatars)) {
-    if (!a.target) continue;
-    const dx = a.target.x - a.x, dy = a.target.y - a.y;
-    const d = Math.hypot(dx, dy);
-    if (d < 1.5) { a.x = a.target.x; a.y = a.target.y; a.target = null; continue; }
-    const step = Math.min(d, WALK_SPEED * dt);
-    a.x = Math.round(a.x + (dx / d) * step);
-    a.y = Math.round(a.y + (dy / d) * step);
+    const walking = !!a.target;
+    moveToward(a, WALK_SPEED, dt);
+    // a 1px bob while walking. Cheap, and it is the difference between a
+    // sprite moving and a person walking.
+    a.bob = walking && !REDUCED ? (Math.floor(now / 110) % 2) : 0;
+    const b = bubbles[name];
+    if (b) { b.x = a.x; b.y = a.y - CHARS[name].tall - 24; }
   }
+  moveToward(car, CAR_SPEED, dt);
+  if (car.exiting && !car.target) { car.visible = false; car.exiting = false; }
 
   for (let i = flying.length - 1; i >= 0; i--) {
     const f = flying[i];
@@ -297,14 +559,20 @@ function tick(ticker) {
 
   monitors.clear();
   const lit = S.active === "builder";
-  for (let i = 0; i < 3; i++)
-    pixelRect(monitors, 268 + i * 44, i === 1 ? 258 : 260, 40, i === 1 ? 34 : 32,
-              lit ? T.wire : T.ink0, lit ? .25 + .1 * Math.sin(now / 220 + i) : 1);
+  const screens = [[574,128,58,44],[638,122,58,50],[702,128,58,44]];
+  screens.forEach(([x, y, w, h], i) => {
+    pixelRect(monitors, x + 3, y + 3, w - 6, h - 6,
+              lit ? T.wire : T.coalLift, lit ? .30 + .12 * Math.sin(now / 220 + i) : 1);
+    if (!lit) return;
+    for (let ln = 0; ln < 4; ln++)               // code lines, scrolling
+      pixelRect(monitors, x + 6, y + 8 + ln * 8 + (Math.floor(now / 300 + i) % 2), 
+                14 + ((ln + i) % 3) * 11, 2, T.wire, .8);
+  });
 
   needle.clear();
   if (needle.sweepUntil && now < needle.sweepUntil) {
     const a = -Math.PI * .75 + Math.PI * .5 * (1 + Math.sin(now / 90));
-    needle.moveTo(642, 292).lineTo(642 + Math.cos(a) * 18, 292 + Math.sin(a) * 18)
+    needle.moveTo(609, 372).lineTo(609 + Math.cos(a) * 20, 372 + Math.sin(a) * 20)
           .stroke({ width: 2, color: T.work });
   }
 
@@ -323,6 +591,266 @@ const stampGlyph = v => v === "pass" || v === "accept"
   ? '<span class="ok">✓</span>' : v === "fail" || v === "reject"
   ? '<span class="no">✗</span>' : "·";
 
+const hex = n => "#" + n.toString(16).padStart(6, "0");
+const tms = e => Date.parse(e.ts || 0) || 0;
+
+/* ------------------------------------------------------------ the replay
+ *
+ * FR-26..29. The whole thing rests on one property: scene state at any moment
+ * is a pure fold over events[0..n]. There is no snapshotting and none is
+ * needed -- a 20k-event night folds in a few milliseconds because applying an
+ * event is a handful of assignments.
+ *
+ * Live and replay stay one code path (the log is the only input either way).
+ * Dragging the tape detaches from the tail; "go live" reattaches. */
+const LOG = [];              // every event received, in order
+let cursor = 0;              // how many of LOG have been applied
+let clock = 0;               // the virtual moment being shown, in ms
+let playing = false, speed = 1, live = true;
+const FEED_TAIL = 250;       // rows kept in the DOM after a re-fold
+
+function runSpan() {
+  if (!LOG.length) return [0, 1];
+  return [tms(LOG[0]), Math.max(tms(LOG[LOG.length - 1]), tms(LOG[0]) + 1)];
+}
+
+const S0 = () => ({ task:"—", attempt:"—", tests:[], review:[], spend:0,
+                    shipped:0, failed:0, retries:0, active:null });
+
+function resetScene() {
+  for (const c of [...layers.fx.children]) c.destroy();
+  flying.length = 0;
+  AGENTS.forEach((n, i) => { const st = couchSeat(i);
+    avatars[n].x = st.x; avatars[n].y = st.y; avatars[n].target = null; });
+  setWorkLamp(null);
+  car.visible = false; car.target = null; car.exiting = false;
+  car.x = CAR_HOME.x; car.y = CAR_HOME.y;
+  chalk.text = ""; tally.text = ""; dimmer.alpha = 0;
+  needle.sweepUntil = 0; freezeUntil = 0; shake = 0;
+  layers.root.x = layers.root.y = 0;
+  Object.assign(S, S0());
+}
+
+/* Rewind or jump: rebuild from event zero. Only ever called when moving
+ * BACKWARDS or landing somewhere new -- going forwards just keeps applying. */
+function foldTo(t) {
+  SILENT = true;
+  resetScene();
+  let i = 0;
+  while (i < LOG.length && tms(LOG[i]) <= t) { applyToScene(LOG[i]); i++; }
+  cursor = i;
+  SILENT = false;
+  const shownRows = LOG.slice(Math.max(0, cursor - FEED_TAIL), cursor);
+  $("feed").innerHTML = "";
+  shownRows.forEach(feedRow);
+  clock = t;
+  // landing exactly on a verdict should still show its stamp -- that is the
+  // whole point of clicking a red notch
+  const last = LOG[cursor - 1];
+  if (last && last.type === "gate_verdict") {
+    slamStamp(verdictWord(last.payload), isGreen(last));
+  }
+  paintHud(); drawTape(); paintReadout();
+}
+
+function advanceTo(t) {
+  if (t < clock) return foldTo(t);
+  while (cursor < LOG.length && tms(LOG[cursor]) <= t) {
+    applyToScene(LOG[cursor]); feedRow(LOG[cursor]); cursor++;
+    trimFeed();
+  }
+  clock = t;
+  paintHud(); drawTape(); paintReadout();
+}
+
+function trimFeed() {
+  const f = $("feed");
+  while (f.childElementCount > FEED_TAIL * 2) f.removeChild(f.firstChild);
+}
+
+function setLive(on) {
+  live = on;
+  $("golive").classList.toggle("on", on);
+  neon.text = on ? "THE GARAGE" : "REPLAY";      // scene and chrome agree (§5.2)
+  neon.style.fill = on ? T.warm : T.tan;
+  $("dot").classList.toggle("live", on && !!ws);
+}
+
+/* ------------------------------------------------------------------ tape */
+
+/* Styled as tape, not a media player (DESIGN §5.2): event density as ticks,
+ * verdicts as green/red notches you can click, cumulative spend as a line
+ * across the same x axis (FR-29), and a --wire playhead. */
+function drawTape() {
+  const cv = $("tape"), ctx = cv.getContext("2d");
+  const dpr = devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== w * dpr || cv.height !== h * dpr) {
+    cv.width = w * dpr; cv.height = h * dpr;
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "#211B19"; ctx.fillRect(0, 0, w, h);
+  if (!LOG.length) return;
+
+  const [t0, t1] = runSpan();
+  const X = t => 2 + ((t - t0) / (t1 - t0)) * (w - 4);
+
+  // cumulative spend (FR-29)
+  let usd = 0, maxUsd = 0;
+  const pts = LOG.map(e => {
+    if (e.type === "cost_tick" && typeof (e.payload || {}).usd === "number")
+      usd = e.payload.usd;
+    maxUsd = Math.max(maxUsd, usd);
+    return [X(tms(e)), usd];
+  });
+  if (maxUsd > 0) {
+    ctx.beginPath();
+    ctx.moveTo(2, h - 3);
+    pts.forEach(([x, u]) => ctx.lineTo(x, h - 3 - (u / maxUsd) * (h - 16)));
+    ctx.lineTo(w - 2, h - 3);
+    ctx.fillStyle = "rgba(216,193,138,.13)"; ctx.fill();
+    ctx.beginPath();
+    pts.forEach(([x, u], i) => { const y = h - 3 - (u / maxUsd) * (h - 16);
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.strokeStyle = "#D8C18A"; ctx.lineWidth = 1; ctx.stroke();
+  }
+
+  // event density
+  ctx.fillStyle = "rgba(184,166,139,.5)";
+  LOG.forEach(e => ctx.fillRect(Math.round(X(tms(e))), h - 9, 1, 6));
+
+  // verdict notches -- one click jumps to any of them
+  // Draw greens first so a red sharing the same pixel is the one you can see.
+  // Two verdicts 4ms apart are one pixel; hiding the failure under the pass
+  // would make the tape lie about where the trouble is.
+  const notches = LOG.filter(e => NOTCH_TYPES.includes(e.type));
+  [...notches].sort((a, b) => isRed(a) - isRed(b)).forEach(e => {
+    ctx.fillStyle = notchColour(e);
+    ctx.fillRect(Math.round(X(tms(e))) - 1, 3, 3, h - 14);
+  });
+
+  // playhead
+  const px = Math.round(X(Math.min(Math.max(clock, t0), t1)));
+  ctx.fillStyle = "#4D8FDB";
+  ctx.fillRect(px, 0, 1, h);
+  ctx.fillRect(px - 3, 0, 7, 4);
+}
+
+function tapeTimeAt(clientX) {
+  const cv = $("tape"), r = cv.getBoundingClientRect();
+  const [t0, t1] = runSpan();
+  const k = Math.min(1, Math.max(0, (clientX - r.left - 2) / (r.width - 4)));
+  return t0 + k * (t1 - t0);
+}
+
+/* Which verdict did you mean?
+ *
+ * Snapping is in PIXELS, not milliseconds: a tests-pass and the review-reject
+ * that followed it can be 4ms apart, which is the same pixel on any tape you
+ * can fit on a screen, and picking "nearest in time" there is a coin flip.
+ *
+ * Within one pixel-cluster, RED WINS. The whole point of the notches is "click
+ * a red one to jump to the failure" -- so if a failure shares a pixel with a
+ * pass, the failure is what you asked for. Ties beyond that go to the latest,
+ * so you land on the cluster's outcome rather than its first step. */
+const NOTCH_TYPES = ["gate_verdict", "shipped", "task_failed"];
+const isRed = e => e.type === "task_failed" ||
+  (e.type === "gate_verdict" && ["fail", "reject"].includes(e.payload.verdict));
+/* Repo mode adds a third verdict: "unverified" -- no regressions, but nothing
+ * proving the change did anything. It is neither a pass nor a failure, and
+ * drawing it green would make the tape claim a fix that was never shown. */
+const isGreen = e => e.type === "shipped" ||
+  (e.type === "gate_verdict" && ["pass", "accept"].includes(e.payload.verdict));
+const notchColour = e => isRed(e) ? "#D95A5A" : isGreen(e) ? "#46B46A" : "#F0B24B";
+
+function snapToNotch(t) {
+  const [t0, t1] = runSpan();
+  const w = Math.max(40, $("tape").clientWidth - 4);
+  const tol = ((t1 - t0) / w) * 5;               // 5px of slack
+  const near = LOG.filter(e => NOTCH_TYPES.includes(e.type) &&
+                               Math.abs(tms(e) - t) <= tol);
+  if (!near.length) return null;
+  const reds = near.filter(isRed);
+  const pool = reds.length ? reds : near;
+  const e = pool[pool.length - 1];
+  return { t: tms(e), e };
+}
+
+function paintReadout() {
+  const [t0, t1] = runSpan();
+  const at = LOG[Math.max(0, cursor - 1)];
+  $("count").textContent = `${cursor} / ${LOG.length}`;
+  $("stamp").textContent = at ? (at.ts || "").slice(11, 19) : "--:--:--";
+  const secs = Math.round((Math.min(clock, t1) - t0) / 1000);
+  $("elapsed").textContent = `+${String(Math.floor(secs / 60)).padStart(2,"0")}:${String(secs % 60).padStart(2,"0")}`;
+}
+
+/* ------------------------------------------------- artifacts (FR-28) */
+
+/* Payloads carry pointers, never blobs (ADR-5), so the diff or the test log is
+ * fetched only when someone actually asks to see it. */
+async function showArtifact(ev) {
+  const path = (ev.payload || {}).artifact;
+  const box = $("art"), body = $("artbody");
+  $("arttitle").textContent = `${shown(ev.agent)} · ${ev.type}` +
+    (ev.payload.attempt ? ` · attempt ${ev.payload.attempt}` : "");
+  box.classList.add("open");
+  const kv = Object.entries(ev.payload || {})
+    .map(([k, v]) => `${k} = ${typeof v === "object" ? JSON.stringify(v) : v}`).join("\n");
+  if (!path) { body.textContent = kv || "(no payload)"; return; }
+  body.textContent = kv + "\n\nloading " + path + " …";
+  try {
+    const r = await fetch(`/api/runs/${encodeURIComponent(currentRun)}/artifacts/${path}`);
+    body.textContent = kv + "\n\n── " + path + " ──\n" + (r.ok
+      ? await r.text() : `(${r.status} — artifact not on disk)`);
+  } catch (err) {
+    body.textContent = kv + "\n\n(could not fetch " + path + ": " + err.message + ")";
+  }
+}
+
+/* --------------------------------------------------------------- roster */
+
+function portrait(k) {
+  const c = CHARS[k];
+  return `<span class="pt" style="background:${hex(c.shirt)}">` +
+         `<i class="ht" style="background:${hex(c.hair)}"></i>` +
+         `<i class="fc" style="background:${hex(c.skin)}"></i></span>`;
+}
+
+function buildCrew() {
+  const box = $("crew");
+  box.innerHTML = "";
+  for (const k of AGENTS) {
+    const row = document.createElement("div");
+    row.className = "who"; row.id = "who-" + k;
+    row.innerHTML =
+      `<span class="sw" style="background:${hex(CHARS[k].shirt)}"></span>` +
+      `<span><span class="nm">${shown(k)}</span> <span class="rid">${k}</span>` +
+      `<div class="rl">${ROLES[k]}</div></span>`;
+    box.appendChild(row);
+  }
+}
+
+function buildStrip() {
+  const box = $("strip");
+  box.innerHTML = "";
+  for (const k of AGENTS) {
+    const card = document.createElement("div");
+    card.className = "card"; card.id = "card-" + k;
+    card.innerHTML = portrait(k) +
+      `<span class="meta"><span class="cn">${shown(k)}</span>` +
+      `<span class="cr">${CHARS[k].role}</span>` +
+      `<span class="cs"><i class="dotp"></i><span class="st">idle</span></span></span>`;
+    // FR-28: what was this mechanic last doing, and show me the artifact
+    card.onclick = () => {
+      for (let i = cursor - 1; i >= 0; i--)
+        if (LOG[i].agent === k) return showArtifact(LOG[i]);
+    };
+    box.appendChild(card);
+  }
+}
+
 function paintHud() {
   $("task").textContent = S.task;
   $("attempt").textContent = S.attempt;
@@ -331,6 +859,11 @@ function paintHud() {
   $("spend").textContent = "$" + S.spend.toFixed(4);
   $("shipped").textContent = S.shipped;
   $("failed").textContent = S.failed;
+  for (const k of AGENTS) {
+    const card = $("card-" + k);
+    if (card) card.querySelector(".st").textContent =
+      S.active === k ? STATIONS[k].word.toLowerCase() : "idle";
+  }
 }
 
 function feedRow(e) {
@@ -342,26 +875,30 @@ function feedRow(e) {
   const kv = Object.entries(p).filter(([k]) => k !== "artifact")
     .map(([k, x]) => `${k}=${typeof x === "object" ? JSON.stringify(x) : x}`).join(" ");
   const row = document.createElement("div");
-  row.className = "row " + cls;
+  row.className = "row " + cls + (p.artifact ? " has" : "");
   row.innerHTML = `<span class="t">${(e.ts||"").slice(11,19)}</span>` +
-    `<span class="ag">${e.agent}</span><span class="ty">${e.type}</span>` +
+    `<span class="ag">${shown(e.agent)}</span><span class="ty">${e.type}</span>` +
     `<span class="kv">${kv.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</span>`;
+  row.onclick = () => showArtifact(e);
   const f = $("feed");
   const stuck = f.scrollTop + f.clientHeight >= f.scrollHeight - 30;
   f.appendChild(row);
   if (stuck) f.scrollTop = f.scrollHeight;
 }
 
-let ws = null;
+/* ------------------------------------------------------------- transport */
+
+let ws = null, currentRun = null;
+
 function openRun(id) {
   if (ws) { ws.close(); ws = null; }
-  $("feed").innerHTML = "";
-  Object.assign(S, { task:"—", attempt:"—", tests:[], review:[], spend:0,
-                     shipped:0, failed:0, retries:0, active:null });
-  chalk.text = ""; tally.text = ""; dimmer.alpha = 0;
-  setWorkLamp(null);
-  AGENTS.forEach((n, i) => { const st = couchSeat(i); walkTo(n, st.x, st.y); });
-  paintHud();
+  currentRun = id;
+  LOG.length = 0; cursor = 0; clock = 0; playing = false;
+  $("play").textContent = "▶";
+  resetScene(); $("feed").innerHTML = "";
+  $("art").classList.remove("open");
+  setLive(true);
+  paintHud(); drawTape(); paintReadout();
   $("status").textContent = "connecting…"; $("dot").className = "dot";
 
   const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -370,16 +907,81 @@ function openRun(id) {
   ws.onmessage = ev => {
     const e = JSON.parse(ev.data);
     if (e.error) { $("status").textContent = e.error; return; }
-    applyToScene(e); feedRow(e); paintHud();
+    LOG.push(e);
+    // A finished run arrives in one burst. Park at the start and let the
+    // operator drive, instead of flashing the whole night past in 40ms --
+    // which is exactly the thing this week set out to fix.
+    if (live && !playing && LOG.length === 1) clock = tms(e);
+    if (live && playing) { /* the ticker will pick it up */ }
+    else if (live && cursor === LOG.length - 1) { /* stay parked */ }
     if (e.type === "run_finished") $("status").textContent = "run finished";
+    drawTape(); paintReadout();
   };
   ws.onclose = () => $("dot").classList.remove("live");
 }
 
+function wireTransport() {
+  $("play").onclick = () => {
+    if (!LOG.length) return;
+    const [, t1] = runSpan();
+    if (clock >= t1) foldTo(runSpan()[0]);       // replay from the top
+    playing = !playing;
+    $("play").textContent = playing ? "❚❚" : "▶";
+    if (playing) setLive(false);
+  };
+  $("restart").onclick = () => { foldTo(runSpan()[0]); playing = false;
+                                 $("play").textContent = "▶"; setLive(false); };
+  $("golive").onclick = () => {
+    setLive(true); playing = false; $("play").textContent = "▶";
+    if (LOG.length) advanceTo(runSpan()[1] + 1);
+  };
+  document.querySelectorAll("[data-speed]").forEach(b => {
+    b.onclick = () => {
+      speed = +b.dataset.speed;
+      document.querySelectorAll("[data-speed]").forEach(x =>
+        x.classList.toggle("on", x === b));
+    };
+  });
+  $("artclose").onclick = () => $("art").classList.remove("open");
+
+  const cv = $("tape");
+  let dragging = false;
+  const seekFromEvent = ev => {
+    const t = tapeTimeAt(ev.clientX);
+    const hit = snapToNotch(t);
+    foldTo(hit ? hit.t : t);
+    if (hit && !dragging) showArtifact(hit.e);   // click a red notch, see why
+  };
+  cv.onmousedown = ev => { dragging = false; playing = false;
+                           $("play").textContent = "▶"; setLive(false);
+                           seekFromEvent(ev); cv.setPointerCapture?.(ev.pointerId); };
+  cv.onmousemove = ev => { if (ev.buttons & 1) { dragging = true; 
+                           foldTo(tapeTimeAt(ev.clientX)); } };
+  cv.onmouseup = ev => { if (dragging) { dragging = false; return; } };
+  addEventListener("resize", drawTape);
+  addEventListener("keydown", ev => {
+    if (ev.target.tagName === "SELECT") return;
+    if (ev.code === "Space") { ev.preventDefault(); $("play").click(); }
+    if (ev.key === "ArrowRight" && cursor < LOG.length) advanceTo(tms(LOG[cursor]));
+    if (ev.key === "ArrowLeft" && cursor > 1) foldTo(tms(LOG[cursor - 2]));
+  });
+}
+
+/* Playback rides the same ticker as the scene, so a paused replay freezes the
+ * walk cycles too rather than leaving mechanics sliding around a dead clock. */
+function tickPlayback(ticker) {
+  if (!playing || !LOG.length) return;
+  const [, t1] = runSpan();
+  advanceTo(clock + ticker.deltaMS * speed);
+  if (clock >= t1) { playing = false; $("play").textContent = "▶";
+                     $("status").textContent = "end of run"; }
+}
+
 async function boot() {
-  await app.init({ width: W, height: H, background: T.ink0,
+  await app.init({ width: W, height: H, background: T.coal,
                    antialias: false, roundPixels: true, autoDensity: false });
   $("stage").appendChild(app.canvas);
+  buildCrew(); buildStrip(); wireTransport();
 
   layers.root = new PIXI.Container();
   app.stage.addChild(layers.root);
@@ -387,9 +989,13 @@ async function boot() {
   buildStations(layers.root);
   layers.actors = new PIXI.Container(); layers.root.addChild(layers.actors);
   layers.fx = new PIXI.Container();     layers.root.addChild(layers.fx);
+  layers.ui = new PIXI.Container();     layers.root.addChild(layers.ui);
+
+  car = makeCar();
+  layers.actors.addChild(car);
 
   dimmer = new PIXI.Graphics();
-  pixelRect(dimmer, 0, 0, W, H, T.ink0);
+  pixelRect(dimmer, 0, 0, W, H, T.coal);
   dimmer.alpha = 0;
   layers.root.addChild(dimmer);
 
@@ -397,6 +1003,8 @@ async function boot() {
     const a = makeAvatar(n);
     const seat = couchSeat(i); a.x = seat.x; a.y = seat.y;
     layers.actors.addChild(a); avatars[n] = a;
+    const b = makeBubble(n);
+    layers.ui.addChild(b); bubbles[n] = b;
   });
 
   const fit = () => {
@@ -410,6 +1018,7 @@ async function boot() {
   };
   fit(); addEventListener("resize", fit);
   app.ticker.add(tick);
+  app.ticker.add(tickPlayback);
 
   const runs = await (await fetch("/api/runs")).json();
   const sel = $("runs");
@@ -426,8 +1035,8 @@ async function boot() {
 
   // feed-only mode: the demo must work with the garage off (DESIGN §5.1)
   $("toggleFeed").onclick = () => {
-    const on = document.body.style.gridTemplateRows !== "48px 0px 1fr";
-    document.body.style.gridTemplateRows = on ? "48px 0px 1fr" : "48px 1fr 190px";
+    const on = document.body.dataset.feedOnly !== "1";
+    document.body.dataset.feedOnly = on ? "1" : "0";
     $("toggleFeed").textContent = on ? "show garage" : "feed only";
   };
 }

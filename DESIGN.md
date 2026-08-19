@@ -43,24 +43,34 @@ chrome (cards with drop shadows, KPI tiles, gradient buttons).
 
 ## 2. Color tokens
 
-Palette: night garage under sodium + neon light. Dark surfaces are slightly
-**blue-violet** (moonlit concrete), never neutral gray. Exactly one warm accent
-(work light) and two verdict colors that are never used for anything else.
+Palette: **dark and cosy** — a workshop that has been running all night. Dark
+surfaces are warm (**coal, walnut, dusty concrete**), never blue-violet and
+never neutral gray. Mid-tones are lifted so the room stays readable while the
+four status colors still pop off it. Exactly one warm accent (work light) and
+two verdict colors that are never used for anything else.
+
+*Revised from the original blue-violet night palette. The room reading as cold
+and empty was the reason; the four meaning-carrying tokens below were carried
+across unchanged in role, only retuned to sit on warm surfaces.*
 
 ### 2.1 Core palette
 
 | Token | Hex | Name | Use |
 |---|---|---|---|
-| `--ink-0` | `#12101A` | midnight concrete | app background, scene void |
-| `--ink-1` | `#1C1930` | garage shadow | floor base, panel background |
-| `--ink-2` | `#2A2545` | wall violet | walls, raised surfaces, feed rows |
-| `--ink-3` | `#3D3763` | prop line | borders, prop outlines, dividers, idle sprite tint |
-| `--paper` | `#E8E4D8` | whiteboard | primary text, the whiteboard fill, paper sprites |
-| `--paper-dim` | `#9B96A8` | dusty chalk | secondary text, timestamps, idle labels |
-| `--work` | `#FFB13D` | sodium lamp | THE accent: active agent glow, current station lamp, links, focus rings, spend counter |
-| `--pass` | `#3DDC97` | ship green | pass stamp, solved counts, ship animation. **Verdicts only** |
-| `--fail` | `#FF5D5D` | reject red | fail stamp, reject reasons, failure types. **Verdicts only** |
-| `--wire` | `#5BC8F5` | oscilloscope blue | data/telemetry accents: cost sparkline, scrubber playhead, WS-connected dot |
+| `--work` | `#F0B24B` | amber lamp | THE accent: active mechanic glow, current station lamp, links, focus rings, spend counter |
+| `--pass` | `#46B46A` | ship green | pass stamp, solved counts, ship animation. **Verdicts only** |
+| `--fail` | `#D95A5A` | reject red | fail stamp, reject reasons, failure types. **Verdicts only** |
+| `--wire` | `#4D8FDB` | screen blue | screens, wires and data accents: monitors, cost sparkline, scrubber playhead |
+| `--coal` | `#211B19` | coal | app background, outer walls, deep shadow, prop outlines |
+| `--walnut` | `#4A382D` | walnut | wood beams, desks, benches, trim, panel surfaces |
+| `--concrete` | `#6D5B48` | dusty concrete | the floor and its tiling |
+| `--tan` | `#B8A68B` | tan metal | shelves, filing boxes, stools, props, secondary text |
+| `--parchment` | `#E8DAB9` | parchment | primary text, whiteboard fill, paper sprites, name-tag and speech-bubble backers |
+| `--warm` | `#D8C18A` | warm light | ambient bulbs, soft lamp glow, highlights, the neon sign |
+
+Derived shades (`--coal-lift`, `--walnut-lift`, plus the concrete light/dark
+pair used by the scene) are **mixed from the ten above**. No eleventh hue is
+invented anywhere in the codebase.
 
 ### 2.2 Rules of use
 
@@ -71,7 +81,12 @@ Palette: night garage under sodium + neon light. Dark surfaces are slightly
   Never for buttons, never for "online" status (that's `--wire`), never
   decoratively. A user must be able to trust that green = a gate said yes.
 - No pure black, no pure white, no gradients on surfaces. Gradients are
-  permitted in exactly one place: the neon sign glow (§4.2).
+  permitted in exactly one place: the neon sign glow (§4.2). The sign glows
+  `--warm`, **not** `--fail`: a red neon would spend a verdict colour on
+  decoration, which §2.2 forbids however good it looks.
+- Clothing may not borrow a status colour. The builder's hoodie and the
+  tester's tee are pulled down to rust and ochre for exactly this reason —
+  beside the real `--work` amber they must read as cloth, not as status.
 - Contrast floor: body text `--paper` on `--ink-1/2` (≥ 10:1); `--paper-dim`
   reserved for ≥ 14px secondary text.
 
