@@ -396,5 +396,85 @@ costs, and raise the output ceiling so hard tasks stop truncating mid-diff.
 
 ## Week 3 — The event stream
 
-*Not started. This section gets written when the week-3 exit criterion is met:
-a live run streams to a browser text feed, and a saved run replays as text.*
+**Goal:** make the run watchable. Not pretty yet — watchable.
+
+**Status: done.** Start a run, open a browser tab, see it happen.
+
+### What it does now
+
+The engine writes one line to a file every time anything happens. A small
+server tails that file and pushes each line to your browser. The page turns
+those lines into a scrolling feed:
+
+    19:28:14  builder   x patch_apply_error  attempt=1 reason=no unified diff found
+    19:28:15  builder     retry              attempt=2
+    19:28:18  builder     patch_produced     attempt=3 lines=22
+    19:28:18  tester      tests_run          attempt=3
+
+Red for a failure, green for a pass, and a running tally on the right — which
+task, which attempt, gates so far, money spent.
+
+Click any line that references a file and the actual thing appears: the diff it
+wrote, the test output it got back.
+
+### The idea that makes week 4 cheap
+
+**Live and replay are the same code path.**
+
+The browser tells the server "I've seen up to event 143." The server sends
+everything after 143, then keeps sending as new ones arrive. A brand-new viewer
+just says "I've seen 0" — so replaying a finished run and watching a live one
+are the *same request*, and there is no seam between "history" and "now" where
+events usually go missing.
+
+That one decision is what gives you the replay scrubber later for almost
+nothing. It is also why a dropped connection is harmless: reconnecting is
+indistinguishable from arriving for the first time.
+
+### The rule everything hangs off
+
+**The page reads the event log and nothing else.** There is no back channel to
+ask the engine a question — the browser could not do it if it wanted to.
+
+That sounds like an inconvenience and is actually the point: it forces the log
+to be *complete*. If something can be seen on screen, it exists as an event; if
+it does not exist as an event, no amount of clever frontend work can invent it.
+When the pixel-art garage arrives it will be a different reader of the same
+lines, which is what makes the promise in the blueprint true — every animation
+corresponds to something that really happened.
+
+### Two design choices worth naming
+
+**Events carry pointers, not contents.** A line says *"the patch is at
+attempts/3/patch.diff"* — never the patch itself. The stream stays small enough
+to tail, and the 899-character diff is fetched only when someone clicks. Without
+this, a long run's log would be tens of megabytes and the browser would choke
+re-reading it.
+
+**The log writer is the one place that crashes on failure.** Everywhere else in
+this engine, a failure becomes data — a rejected patch is recorded, a failed
+test is recorded, an infrastructure error is recorded. But a run whose events
+cannot be written is worthless, so that one refuses to continue blind rather
+than producing a run nobody can inspect.
+
+### No new bugs this week
+
+Worth noting after the previous two weeks: nothing here was wrong. The reason is
+that week 3 was a **retrofit** onto an engine already proven correct from its
+result files alone — which is exactly why the plan put observability third
+rather than first. There was no ambiguity about what the events should say,
+because the behaviour they describe was already settled and tested.
+
+The only fixes were cosmetic: two columns in the feed were too narrow and
+wrapped words down the middle.
+
+### What is left before the garage
+
+Week 4 is the Pixi scene — mechanics walking to their stations, paper flying
+between desks, the stamp coming down on a verdict. The feed stays underneath it
+permanently as a drawer, because the demo has to work with the pixels turned
+off.
+
+Then the replay scrubber, which is the piece that actually matters for the
+overnight use case: nobody is watching at 3am, so the artefact you consume is
+the morning one.
