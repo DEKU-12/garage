@@ -47,11 +47,11 @@ class RunConfig(BaseModel):
     # not a constant, so its contribution can be measured like any other.
     repair_hunks: bool = True
 
-    # PRD says 6000. That cannot fit: the free tier's 8000 tokens/minute must
-    # hold prompt + context + reserved answer, and max_completion_tokens alone
-    # is 6000. 1500 leaves room for all three. Raise this the moment the
-    # account moves off the free tier -- it is a tier limit, not a design one.
-    context_token_budget: int = 1500
+    # PRD's number, restored. It was cut to 1500 only because Groq's free tier
+    # had to fit prompt + context + reserved answer under 8000 tokens/minute.
+    # Anthropic does not squeeze a single request that hard, so Scout gets the
+    # budget the design actually called for.
+    context_token_budget: int = 6000
     scout_max_tool_calls: int = 6
 
     # Budgets (FR-12). Hitting one is `budget_exceeded`, never `crashed`.
@@ -83,7 +83,12 @@ class RunConfig(BaseModel):
     # and is not one.
     min_completion_tokens: int = 1500
     request_token_margin: int = 400  # headroom for tokeniser disagreement
-    reasoning_effort: str = "low"  # "low" | "medium" | "high"
+    reasoning_effort: str = "low"  # Groq gpt-oss only: "low" | "medium" | "high"
+
+    # Anthropic's effort knob. "high" is the API default and the recommended
+    # setting for coding work; "xhigh" for the hardest agentic tasks. This is
+    # how thinking depth is steered on Claude -- there is no token budget.
+    effort: str = "high"
 
     prompt_hashes: dict[str, str] = Field(default_factory=dict)
 

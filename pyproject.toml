@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2",    # RunConfig; validate at the edge, trust internally
     "python-dotenv",  # load_dotenv(override=True), keys stay in .env
     "langgraph>=1.2.11",
+    "anthropic>=0.123.0",
 ]
 
 # Added at their build week, not before:

@@ -20,6 +20,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
+import anthropic
 import openai
 
 from engine.agents.stub import StubBackend
@@ -27,6 +28,12 @@ from engine.config import STUB_MODEL, RunConfig
 from engine.errors import ModelCallError, QuotaExhausted
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+
+# Per-request ceilings differ enormously by provider. Groq's free tier counts
+# the RESERVED answer against an 8000 tokens/minute wall; Anthropic does not
+# squeeze a single request that hard. Keeping both keeps E4's bake-off runnable
+# across providers without editing code between arms.
+CEILINGS = {"groq": 8_000, "anthropic": 200_000}
 REQUEST_TIMEOUT_S = 120.0
 MAX_ATTEMPTS = 3
 BACKOFF_BASE_S = 1.5
@@ -35,8 +42,10 @@ BACKOFF_BASE_S = 1.5
 TRANSIENT = (
     openai.APITimeoutError,
     openai.APIConnectionError,
-    openai.RateLimitError,
     openai.InternalServerError,
+    anthropic.APITimeoutError,
+    anthropic.APIConnectionError,
+    anthropic.InternalServerError,
 )
 
 
@@ -54,6 +63,66 @@ class Usage:
     @property
     def total_tokens(self) -> int:
         return self.prompt_tokens + self.completion_tokens
+
+
+def provider_of(model: str) -> str:
+    """Which API serves this model id."""
+    return "anthropic" if model.startswith("claude-") else "groq"
+
+
+def _anthropic_client() -> anthropic.Anthropic:
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        raise ModelCallError(
+            "ANTHROPIC_API_KEY is not set. Put it in .env, or run with "
+            "--model stub to work offline.",
+            retryable=False,
+        )
+    return anthropic.Anthropic(api_key=key, timeout=REQUEST_TIMEOUT_S)
+
+
+def _split_system(messages: list[dict[str, str]]) -> tuple[str, list[dict[str, str]]]:
+    """Anthropic takes the system prompt as a top-level field, not a message."""
+    system = "\n\n".join(
+        str(m.get("content", "")) for m in messages if m.get("role") == "system"
+    )
+    rest = [m for m in messages if m.get("role") != "system"]
+    return system, rest
+
+
+def _invoke_anthropic(
+    model: str, messages: list[dict[str, str]], cfg: RunConfig, max_tokens: int
+) -> tuple[str, int, int, str]:
+    """One Anthropic call -> (text, prompt_tokens, completion_tokens, stop_reason).
+
+    No temperature, top_p, or seed: Claude Sonnet 5 rejects non-default sampling
+    parameters outright. That costs us the seed-pinned reproducibility NFR-2
+    assumed -- runs are repeated on the same task set instead, and the config
+    records which provider produced a result.
+
+    Thinking is adaptive by default on this model; depth is steered with
+    `effort` rather than a token budget.
+    """
+    system, turns = _split_system(messages)
+    response = _anthropic_client().messages.create(
+        model=model,
+        max_tokens=max_tokens,
+        system=system or anthropic.NOT_GIVEN,
+        messages=turns,  # type: ignore[arg-type]
+        output_config={"effort": cfg.effort},
+    )
+    stop = response.stop_reason or ""
+    if stop == "refusal":
+        # A safety decline is an outcome, not a crash -- but it is emphatically
+        # not a patch, so it must not reach the builder as one.
+        raise ModelCallError(
+            f"{model}: request declined by safety classifiers "
+            f"(stop_reason=refusal)",
+            retryable=False,
+        )
+    text = "".join(b.text for b in response.content if b.type == "text").strip()
+    usage = response.usage
+    return text, usage.input_tokens, usage.output_tokens, stop
 
 
 def _client() -> openai.OpenAI:
@@ -151,13 +220,15 @@ def call_model(
     # prompt + max_completion_tokens must fit under it or the request 413s
     # before the model reads a word. Shrink the reservation to whatever room
     # the prompt left rather than sending a request we know will be refused.
+    provider = provider_of(model)
+    ceiling = CEILINGS.get(provider, cfg.request_token_ceiling)
     prompt_estimate = sum(len(str(m.get("content", ""))) for m in messages) // 4
-    room = cfg.request_token_ceiling - prompt_estimate - cfg.request_token_margin
+    room = ceiling - prompt_estimate - cfg.request_token_margin
     max_completion = min(cfg.max_completion_tokens, room)
     if max_completion < cfg.min_completion_tokens:
         raise ModelCallError(
             f"{role}/{model}: prompt is ~{prompt_estimate} tokens, leaving "
-            f"{room} of the {cfg.request_token_ceiling} ceiling for an answer "
+            f"{room} of the {ceiling} ceiling for an answer "
             f"-- below the {cfg.min_completion_tokens} floor. Shrink "
             f"context_token_budget or raise request_token_ceiling.",
             retryable=False,
@@ -166,6 +237,17 @@ def call_model(
     last: Exception | None = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
+            if provider == "anthropic":
+                text, ptok, ctok, stop = _invoke_anthropic(
+                    model, messages, cfg, max_completion
+                )
+                return text, Usage(
+                    model=model, role=role,
+                    prompt_tokens=ptok, completion_tokens=ctok,
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                    finish_reason=stop,
+                )
+
             extra: dict[str, Any] = {}
             if "gpt-oss" in model:
                 # Only the reasoning models accept this; sending it to others
@@ -179,7 +261,7 @@ def call_model(
                 max_completion_tokens=max_completion,
                 **extra,
             )
-        except openai.RateLimitError as exc:
+        except (openai.RateLimitError, anthropic.RateLimitError) as exc:
             # Two very different 429s share one class. A per-MINUTE limit
             # clears in seconds and is worth retrying; a per-DAY limit does
             # not clear within any run, so retrying three times just burns
@@ -199,14 +281,15 @@ def call_model(
             if attempt < MAX_ATTEMPTS:
                 time.sleep(_sleep_for(attempt))
             continue
-        except openai.APIStatusError as exc:
+        except (openai.APIStatusError, anthropic.APIStatusError) as exc:
             # A 4xx that is not rate limiting. Re-sending the identical request
             # is pointless, so we do not retry the CALL -- but some of these
             # are the model misbehaving (a spontaneous tool call), not our
             # request being malformed, and a fresh attempt may well succeed.
             # Auth failures never will.
             raise ModelCallError(
-                f"{role}/{model}: {exc.status_code} {exc.message}",
+                f"{role}/{model}: {exc.status_code} "
+                f"{getattr(exc, 'message', str(exc))}",
                 # 413 is "request too large": the identical request will
                 # always be too large, so a fresh attempt is wasted budget.
                 # Auth failures never recover either.

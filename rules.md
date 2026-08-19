@@ -37,7 +37,7 @@
 |---|---|---|
 | Orchestration | `langgraph` | Hand-written graph in `engine/graph.py`. Nodes are thin; logic lives in `agents/` |
 | LangChain bits | `langchain_core`, `langchain_community`, provider packages | **LangChain 1.3.x import paths.** The old `langchain.text_splitter` / `langchain.schema` paths are GONE — any suggestion using them is stale training data; rewrite it |
-| Model API | Groq via its OpenAI-compatible client | One wrapper: `agents/base.py::call_model`. No agent calls the API directly |
+| Model API | Anthropic SDK (`claude-sonnet-5`) primary; Groq via its OpenAI-compatible client retained for the E4 bake-off | **One wrapper: `agents/base.py::call_model`** — unchanged and still the rule. No agent calls any API directly; the provider is chosen inside that one function from the model id |
 | Benchmark | `swebench` (official package) | Task loading AND grading. **Never write a custom pytest runner for repo tests** |
 | Config/validation | `pydantic` v2 | `RunConfig` is a `BaseModel`; validate at the edge, trust internally |
 | Repo search | `ripgrep` via subprocess (`rg --json`) | Not Python re-implementations |

@@ -122,6 +122,25 @@ other nearly free (TAD §5.2).
 
 ---
 
+## Provider: why Anthropic, and what it cost
+
+Groq's free tier caps **200,000 tokens per day**. E1 needs ~420,000, so the
+experiment could not finish inside a day — three days minimum, with every
+debugging iteration costing another one. Time stopped being cheaper than money.
+
+`claude-sonnet-5` is the default. Groq stays wired, selected by model id, so
+E4's bake-off can run both without a code change between arms.
+
+Two things this costs, recorded rather than glossed:
+
+- **No seed.** Claude rejects `temperature`, `top_p`, and `seed` outright, so
+  NFR-2's seed-pinned reproducibility is gone. Runs are repeated on the same
+  task set instead, and `config.json` records the provider behind every result.
+- **A dependency.** `anthropic` is justified by the above (rules.md §2.2).
+
+What it buys: no daily wall, and `context_token_budget` back to the PRD's 6000
+instead of the 1500 the free tier forced on Scout.
+
 ## Non-negotiables for repo mode
 
 - **Never touch `main`.** Every attempt runs on its own branch off a fresh

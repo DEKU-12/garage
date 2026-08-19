@@ -36,6 +36,14 @@ class Price:
 PRICES: dict[str, Price] = {
     "openai/gpt-oss-20b": Price(0.075, 0.30, 0.037),
     "openai/gpt-oss-120b": Price(0.15, 0.60, 0.075),
+    # Anthropic, from platform.claude.com/docs pricing, fetched 2026-08-19.
+    # Sonnet 5 is on introductory pricing ($2/$10) through 2026-08-31; list
+    # price is $3/$15. The intro figure is what runs before that date actually
+    # cost, so it is what the ledger should price them at -- change this entry
+    # on Sept 1 rather than back-dating old runs.
+    "claude-sonnet-5": Price(2.00, 10.00),
+    "claude-opus-5": Price(5.00, 25.00),
+    "claude-haiku-4-5": Price(1.00, 5.00),
     # The stub calls nothing and costs nothing. This is a real zero, not a
     # missing entry -- which is why it is listed rather than left unknown.
     "stub": Price(0.0, 0.0, 0.0),
