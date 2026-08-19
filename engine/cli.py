@@ -27,6 +27,7 @@ from engine.batch import (
     completed_task_ids,
     disk_free_gb,
     remove_image,
+    resume_conflict,
     run_spend_usd,
     select_tasks,
 )
@@ -171,6 +172,7 @@ def cmd_run_one(args: argparse.Namespace) -> int:
         model_for_role={r: args.model for r in
                         ("orchestrator", "scout", "builder", "tester", "reviewer", "scribe")},
         scout=not args.no_scout,
+        reviewer_gate=not args.no_reviewer_gate,
         prompt_hashes=prompt_hashes(PROMPTS),
     )
     cfg.freeze_to(run_dir / "config.json")
@@ -217,6 +219,25 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
 
     base = args.run_id or f"b_{datetime.now(timezone.utc):%Y%m%d_%H%M%S}"
     run_dirs = {arm.label: REPO_ROOT / "runs" / f"{base}_{arm.label}" for arm in arms}
+    # Refuse to resume a run built under different settings. Without this a
+    # case-insensitive filesystem is enough to silently inherit another
+    # experiment's rows -- which is how a Groq run once got reported under a
+    # Sonnet heading.
+    for arm in arms:
+        probe = RunConfig(
+            run_id=f"{base}_{arm.label}", task_ids=task_ids,
+            model_for_role={r: args.model for r in
+                            ("orchestrator", "scout", "builder", "tester",
+                             "reviewer", "scribe")},
+            tester_gate=arm.tester_gate,
+            reviewer_gate=not args.no_reviewer_gate,
+            scout=not args.no_scout,
+        )
+        conflict = resume_conflict(run_dirs[arm.label], probe)
+        if conflict:
+            print(f"REFUSING TO RESUME\n  {conflict}")
+            return 2
+
     done = {arm.label: completed_task_ids(run_dirs[arm.label] / "results.csv")
             for arm in arms}
 
@@ -261,6 +282,7 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
                                 ("orchestrator", "scout", "builder", "tester",
                                  "reviewer", "scribe")},
                 tester_gate=arm.tester_gate,
+                reviewer_gate=not args.no_reviewer_gate,
                 scout=not args.no_scout,
                 prompt_hashes=prompt_hashes(PROMPTS),
             )
@@ -338,6 +360,8 @@ def main(argv: list[str] | None = None) -> int:
                      help="stub only: reviewer rejects once before accepting")
     one.add_argument("--no-scout", action="store_true",
                      help="builder sees the issue only -- the OFF arm of E2 (FR-10)")
+    one.add_argument("--no-reviewer-gate", action="store_true",
+                     help="drop the simplicity gate -- the OFF arm of E3 (FR-10)")
     one.add_argument("--stub-failures", default="",
                      help="stub only: comma list of failures to inject before "
                           "the fix, from prose,malformed,empty -- exercises the "
@@ -355,7 +379,11 @@ def main(argv: list[str] | None = None) -> int:
                        help="tester-gate arms to run: on, off, or on,off (FR-10)")
     batch.add_argument("--run-id", default=None,
                        help="reuse the same id to RESUME an interrupted batch")
-    batch.add_argument("--no-scout", action="store_true")
+    batch.add_argument("--no-scout", action="store_true",
+                       help="builder sees the issue only -- the OFF arm of E2")
+    batch.add_argument("--no-reviewer-gate", action="store_true",
+                       help="drop the simplicity gate -- the OFF arm of E3 "
+                            "(the ponytail experiment)")
     batch.add_argument("--max-usd", type=float, default=5.0,
                        help="hard ceiling for the WHOLE batch, resumes included "
                             "(default: $5). Checked before each task against "

@@ -22,6 +22,7 @@ Emits: run_started, run_finished (week 3).
 from __future__ import annotations
 
 import csv
+import json
 import subprocess
 import time
 from dataclasses import dataclass
@@ -106,3 +107,35 @@ def run_spend_usd(run_dirs: list[Path]) -> float:
     from engine.accounting.ledger import read
 
     return sum(row.usd for d in run_dirs for row in read(Path(d) / "ledger.csv"))
+
+
+# Fields that must match for a resume to be honest. Mixing results produced
+# under different models or different gate wiring into one results.csv is
+# exactly the accidental data fraud rules.md §4.1.4 warns about.
+RESUME_CRITICAL = ("model_for_role", "tester_gate", "reviewer_gate", "scout")
+
+
+def resume_conflict(run_dir: Path, cfg: "RunConfig") -> str | None:
+    """Why this run dir must not be resumed under `cfg`, or None if it may be.
+
+    Case-insensitive filesystems make this sharper than it sounds: on macOS
+    `--run-id E1` silently resolves to an existing `e1`, so a run can inherit
+    a completely unrelated experiment's rows without anything looking wrong.
+    """
+    config_path = Path(run_dir) / "config.json"
+    if not config_path.is_file():
+        return None  # nothing to conflict with
+
+    if (Path(run_dir) / "INVALID.md").is_file():
+        return (f"{run_dir} is marked INVALID.md -- it holds results that must "
+                f"not be reported. Choose a different --run-id.")
+
+    stored = json.loads(config_path.read_text())
+    wanted = cfg.model_dump() if hasattr(cfg, "model_dump") else dict(cfg)
+    for field in RESUME_CRITICAL:
+        if field in stored and stored[field] != wanted.get(field):
+            return (f"{run_dir} was produced with {field}={stored[field]!r}, "
+                    f"but this run asks for {wanted.get(field)!r}. Resuming "
+                    f"would mix results from two different configurations into "
+                    f"one table. Choose a different --run-id.")
+    return None
