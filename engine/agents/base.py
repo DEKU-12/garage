@@ -24,7 +24,7 @@ import openai
 
 from engine.agents.stub import StubBackend
 from engine.config import STUB_MODEL, RunConfig
-from engine.errors import ModelCallError
+from engine.errors import ModelCallError, QuotaExhausted
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 REQUEST_TIMEOUT_S = 120.0
@@ -82,6 +82,34 @@ def load_prompt(role: str) -> str:
     into config.json (NFR-1), so exactly one place should know where they live.
     """
     return (PROMPTS / f"{role}.md").read_text(encoding="utf-8")
+
+
+_DAILY_MARKERS = ("tokens per day", "requests per day", "(TPD)", "(RPD)")
+
+
+def _first_line(exc: Exception) -> str:
+    return " ".join(str(exc).split())[:300]
+
+
+def _is_daily_quota(exc: Exception) -> bool:
+    """Is this 429 the per-DAY wall rather than the per-minute one?
+
+    Read from the message text: providers report the daily cap only in the
+    error body -- the x-ratelimit-* headers carry the per-minute limits only,
+    so there is nothing to check proactively.
+    """
+    text = str(exc)
+    return any(marker in text for marker in _DAILY_MARKERS)
+
+
+def _retry_after(exc: Exception) -> float | None:
+    """Seconds the provider asked us to wait, when it says so."""
+    headers = getattr(getattr(exc, "response", None), "headers", None) or {}
+    raw = headers.get("retry-after")
+    try:
+        return float(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def call_model(
@@ -151,6 +179,21 @@ def call_model(
                 max_completion_tokens=max_completion,
                 **extra,
             )
+        except openai.RateLimitError as exc:
+            # Two very different 429s share one class. A per-MINUTE limit
+            # clears in seconds and is worth retrying; a per-DAY limit does
+            # not clear within any run, so retrying three times just burns
+            # the remaining quota and lands the task in the results as a
+            # model failure it never was.
+            if _is_daily_quota(exc):
+                raise QuotaExhausted(
+                    f"{role}/{model}: provider daily token quota exhausted -- "
+                    f"{_first_line(exc)}"
+                ) from exc
+            last = exc
+            if attempt < MAX_ATTEMPTS:
+                time.sleep(_retry_after(exc) or _sleep_for(attempt))
+            continue
         except TRANSIENT as exc:
             last = exc
             if attempt < MAX_ATTEMPTS:

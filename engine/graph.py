@@ -36,7 +36,12 @@ from engine.agents.reviewer import review_patch
 from engine.agents.scout import build_context_pack, render_pack
 from engine.agents.stub import StubBackend
 from engine.config import RunConfig
-from engine.errors import GradingInfraError, ModelCallError, PatchError
+from engine.errors import (
+    GradingInfraError,
+    ModelCallError,
+    PatchError,
+    QuotaExhausted,
+)
 from engine.eval.grader import grade
 from engine.repo.patch import (
     apply_patch,
@@ -134,8 +139,16 @@ def build_graph(
                 state["issue"], state.get("context", ""), cfg, stub,
                 state.get("feedback"),
             )
+        except QuotaExhausted:
+            # Deliberately NOT caught here. The provider's quota is gone, the
+            # model never saw the prompt, and every later task in the batch
+            # would fail identically. It propagates to the batch runner, which
+            # stops without writing a result row -- so resume re-runs this task
+            # rather than inheriting a failure that never happened.
+            raise
         except ModelCallError as exc:
             log(f"  model call failed: {exc}")
+            attempt["error"] = str(exc)[:500]
             attempt["failure"] = "model_error"
             attempt["wall_ms"] = int((time.monotonic() - started) * 1000)
             _write(adir / "meta.json", json.dumps({"error": str(exc)}, indent=2))
@@ -241,6 +254,8 @@ def build_graph(
 
         try:
             review, user_msg, usage = review_patch(attempt["patch"], cfg, stub)
+        except QuotaExhausted:
+            raise  # same reasoning as the builder node
         except ModelCallError as exc:
             # The junior gate must never sink a correct patch (TAD §3.3).
             log(f"  reviewer unavailable ({exc}) -- treating as ACCEPT")

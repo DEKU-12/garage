@@ -29,6 +29,7 @@ from engine.batch import (
     remove_image,
     select_tasks,
 )
+from engine.errors import QuotaExhausted
 from engine.graph import build_graph
 from engine.report.aggregate import gate_lift, render, summarize
 from engine.state import TaskState, new_state
@@ -122,6 +123,7 @@ def run_one(task: Task, cfg: RunConfig, run_dir: Path, stub: StubBackend | None,
             "review_verdict": attempt.get("review_verdict"),
             "review_reason": attempt.get("review_reason"),
             "wall_ms": attempt.get("wall_ms", 0),
+            "error": attempt.get("error", ""),
             **{k: usage.get(k) for k in
                ("prompt_tokens", "completion_tokens", "latency_ms", "finish_reason")},
         }
@@ -254,7 +256,23 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
             )
             cfg.freeze_to(run_dir / "config.json")
             stub = _stub_for(task, args) if cfg.is_stub_run else None
-            row = run_one(task, cfg, run_dir, stub)
+            try:
+                row = run_one(task, cfg, run_dir, stub)
+            except QuotaExhausted as exc:
+                # Stop the batch rather than grinding the rest of the task list
+                # into identical failures. Nothing is written for this task, so
+                # re-running the same --run-id resumes exactly here.
+                print(f"\n{'=' * 68}")
+                print(f"QUOTA EXHAUSTED -- stopping the batch.\n  {exc}")
+                print(f"\n{completed} task-arm run(s) recorded before the wall.")
+                print("Nothing was recorded for this task, so re-running the "
+                      "same command resumes from here once the quota resets:")
+                print(f"  uv run python -m engine.cli run-batch --tasks "
+                      f"{args.tasks} --repo {args.repo} --model {args.model} "
+                      f"--arms {args.arms} --run-id {base}")
+                if not args.keep_images:
+                    remove_image(task.image)
+                return 3
             append_result(run_dir / "results.csv", row)
             completed += 1
             print(f"  -> solved={row['solved']} attempts={row['attempts']} "

@@ -297,3 +297,27 @@ def test_gate_off_still_reviews_a_patch_that_passed(harness) -> None:
     final = _run(cfg, stub, run_dir)
     assert final["status"] == "shipped"
     assert final["attempts"][0]["review_verdict"] == "accept"
+
+
+def test_quota_exhaustion_is_not_recorded_as_a_model_failure(harness, monkeypatch) -> None:
+    """A provider quota wall must escape, not land in the results.
+
+    E1's first run died on Groq's 200k tokens-per-DAY cap. 43 calls never
+    reached the model, but each was recorded as `model_error` -- 22 never-run
+    tasks became apparent model failures and the headline number became noise.
+    The task must produce no result row at all, so a resume re-runs it.
+    """
+    import engine.graph as g
+    from engine.errors import QuotaExhausted
+
+    make, run_dir = harness
+    cfg, _ = make(["pass"])
+
+    def out_of_quota(*a, **kw):
+        raise QuotaExhausted("builder/m: provider daily token quota exhausted")
+
+    monkeypatch.setattr(g, "build_patch", out_of_quota)
+    stub = StubBackend(scripts={"builder": builder_script(GOLD),
+                                "reviewer": reviewer_script()})
+    with pytest.raises(QuotaExhausted):
+        _run(cfg, stub, run_dir)

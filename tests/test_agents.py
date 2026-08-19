@@ -141,3 +141,23 @@ def test_feedback_is_included_verbatim_on_a_retry() -> None:
 
 def test_first_attempt_has_no_failure_section() -> None:
     assert "previous attempt failed" not in build_user_message("issue", "src")
+
+
+def test_daily_quota_is_told_apart_from_a_per_minute_rate_limit() -> None:
+    """Both arrive as 429s; only one is worth retrying.
+
+    The daily cap appears solely in the error body -- x-ratelimit-* headers
+    carry the per-minute limits, so there is nothing to check proactively.
+    """
+    from engine.agents.base import _is_daily_quota
+
+    daily = Exception(
+        "Error code: 429 - {'error': {'message': 'Rate limit reached for model "
+        "`openai/gpt-oss-120b` on tokens per day (TPD): Limit 200000, Used 199569'}}"
+    )
+    per_minute = Exception(
+        "Error code: 429 - {'error': {'message': 'Rate limit reached on tokens "
+        "per minute (TPM): Limit 8000, Used 7900'}}"
+    )
+    assert _is_daily_quota(daily)
+    assert not _is_daily_quota(per_minute)

@@ -45,5 +45,19 @@ class WorkspaceError(GarageError):
     """
 
 
+class QuotaExhausted(GarageError):
+    """The provider's quota is gone -- daily token cap, hard rate wall.
+
+    Infrastructure, NOT a model failure. The model never saw the prompt, so
+    counting this against it corrupts the very thing the project measures: in
+    E1's first run 43 calls died on Groq's 200k tokens-per-DAY cap and were
+    recorded as `model_error`, turning 22 never-ran tasks into apparent model
+    failures and the headline number into noise.
+
+    Unlike a 429 on the per-minute limit, waiting does not help within a run --
+    the batch must stop and resume once the quota resets.
+    """
+
+
 class BudgetExceeded(GarageError):
     """A per-task or per-run cap was hit; the task ends gracefully."""

@@ -22,6 +22,7 @@ class Attempt(TypedDict, total=False):
     patch_applied: bool
     apply_mode: str
     failure: str  # "" | "patch_rejected" | "apply_failed" | "model_error"
+    error: str  # the failure's own words, so a post-mortem needs no log
     test_verdict: str | None  # "pass" | "fail" | None (not run)
     test_output: str | None  # truncated, for feedback
     review_verdict: str | None  # "accept" | "reject" | None
