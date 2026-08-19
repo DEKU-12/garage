@@ -161,3 +161,32 @@ def test_daily_quota_is_told_apart_from_a_per_minute_rate_limit() -> None:
     )
     assert _is_daily_quota(daily)
     assert not _is_daily_quota(per_minute)
+
+
+def test_the_request_timeout_exceeds_the_longest_plausible_generation() -> None:
+    """A short timeout is a BILLING bug, not just a reliability one.
+
+    The provider finishes and charges for work the client abandoned, then
+    charges again for the retry. E1 billed ~2.8x its recorded output tokens
+    this way: a 237s generation against a 120s timeout, with SDK retries
+    underneath our own retry loop.
+    """
+    from engine.agents.base import REQUEST_TIMEOUT_S
+
+    assert REQUEST_TIMEOUT_S >= 600.0
+
+
+def test_only_one_retry_layer_exists() -> None:
+    """Two stacked retry policies multiply billed generations.
+
+    call_model already retries; the SDK retrying underneath makes the ledger a
+    fiction -- it records one call while the bill counts several.
+    """
+    import os
+
+    from engine.agents.base import _anthropic_client, _client
+
+    os.environ.setdefault("ANTHROPIC_API_KEY", "test")
+    os.environ.setdefault("GROQ_API_KEY", "test")
+    assert _anthropic_client().max_retries == 0
+    assert _client().max_retries == 0

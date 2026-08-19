@@ -34,7 +34,14 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 # squeeze a single request that hard. Keeping both keeps E4's bake-off runnable
 # across providers without editing code between arms.
 CEILINGS = {"groq": 8_000, "anthropic": 200_000}
-REQUEST_TIMEOUT_S = 120.0
+# A timeout shorter than the model's longest generation is a BILLING bug, not
+# just a reliability one: the provider finishes and charges for work the client
+# abandoned, then charges again for the retry. Observed on E1 -- a 237s call
+# against a 120s timeout, with the SDK re-sending twice underneath our own
+# retry loop, so one logical call could bill up to nine generations while the
+# ledger recorded one. Anthropic's own default is 600s; thinking at high effort
+# with a 16k output ceiling needs it.
+REQUEST_TIMEOUT_S = 900.0
 MAX_ATTEMPTS = 3
 BACKOFF_BASE_S = 1.5
 
@@ -78,7 +85,11 @@ def _anthropic_client() -> anthropic.Anthropic:
             "--model stub to work offline.",
             retryable=False,
         )
-    return anthropic.Anthropic(api_key=key, timeout=REQUEST_TIMEOUT_S)
+    # max_retries=0: our retry loop is the ONLY retry policy. Two stacked
+    # retry layers multiply billed generations and make the ledger a fiction.
+    return anthropic.Anthropic(
+        api_key=key, timeout=REQUEST_TIMEOUT_S, max_retries=0
+    )
 
 
 def _split_system(messages: list[dict[str, str]]) -> tuple[str, list[dict[str, str]]]:
@@ -133,7 +144,10 @@ def _client() -> openai.OpenAI:
             "GROQ_API_KEY is not set. Put it in .env, or run with --model stub "
             "to exercise the pipeline offline."
         )
-    return openai.OpenAI(base_url=GROQ_BASE_URL, api_key=key, timeout=REQUEST_TIMEOUT_S)
+    return openai.OpenAI(
+        base_url=GROQ_BASE_URL, api_key=key, timeout=REQUEST_TIMEOUT_S,
+        max_retries=0,  # same reasoning as the Anthropic client
+    )
 
 
 def _sleep_for(attempt: int) -> float:
