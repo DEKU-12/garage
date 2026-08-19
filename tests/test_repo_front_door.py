@@ -299,3 +299,104 @@ def test_pr_body_states_plainly_when_nothing_was_proved():
 def test_pr_body_names_the_witness_when_there_is_one():
     body = pr_body(None, "pass", "", ["tests/test_a.py::test_x"], [], 2)
     assert "tests/test_a.py::test_x" in body
+
+
+# ------------------------------------------- wider detection + refusals
+
+def test_a_makefile_test_target_is_a_last_resort_suite(tmp_path):
+    _touch(tmp_path, "Makefile", "build:\n\tgcc x.c\ntest:\n\t./run_tests.sh\n")
+    suite = detect_suite(tmp_path)
+    assert suite is not None and suite.kind == "make"
+    assert suite.per_test is False      # so it can never claim a confirmed fix
+
+
+def test_a_makefile_without_a_test_target_is_not_a_suite(tmp_path):
+    _touch(tmp_path, "Makefile", "build:\n\tgcc x.c\n")
+    assert detect_suite(tmp_path) is None
+
+
+def test_dev_requirements_are_installed_too(tmp_path):
+    _touch(tmp_path, "pyproject.toml", "[project]\nname='x'\n")
+    _touch(tmp_path, "requirements-dev.txt", "pytest-mock\n")
+    _touch(tmp_path, "tests/test_a.py", "def test_a(): pass\n")
+    flat = [" ".join(step) for step in detect_suite(tmp_path).setup]
+    assert any("requirements-dev.txt" in s for s in flat)
+
+
+def test_tox_and_pytest_ini_count_as_python_markers(tmp_path):
+    _touch(tmp_path, "tox.ini", "[tox]\n")
+    _touch(tmp_path, "tests/test_a.py", "def test_a(): pass\n")
+    assert detect_suite(tmp_path).kind == "pytest"
+
+
+def test_a_compose_repo_is_refused_and_says_why(tmp_path):
+    """A suite needing a database standing up alongside it cannot be run by
+    dropping a container over a checkout -- and the refusal should say so."""
+    from engine.repo.detect import refusal_reason
+    _touch(tmp_path, "docker-compose.yml", "services:\n  db:\n    image: postgres\n")
+    _touch(tmp_path, "pyproject.toml", "[project]\nname='x'\n")
+    assert detect_suite(tmp_path) is None
+    assert "other services" in refusal_reason(tmp_path)
+
+
+def test_a_python_repo_with_no_tests_says_that_specifically(tmp_path):
+    from engine.repo.detect import refusal_reason
+    _touch(tmp_path, "pyproject.toml", "[project]\nname='x'\n")
+    assert "could not find any tests" in refusal_reason(tmp_path)
+
+
+# ------------------------------------------------- network isolation
+
+class _FakeExec:
+    """Records docker invocations so the two-phase split can be asserted."""
+
+    def __init__(self, fail_commit=False):
+        self.calls: list[list[str]] = []
+        self.fail_commit = fail_commit
+
+    def __call__(self, argv, **kw):
+        self.calls.append(argv)
+        import subprocess as sp
+        rc = 1 if (self.fail_commit and argv[1] == "commit") else 0
+        return sp.CompletedProcess(argv, rc, stdout="42 passed", stderr="")
+
+    def runs(self):
+        return [c for c in self.calls if len(c) > 1 and c[1] == "run"]
+
+
+def test_tests_run_with_the_network_off(tmp_path):
+    """Installing needs the network. Running somebody else's test suite does
+    not -- and that is the step that executes untrusted code."""
+    from engine.eval.repo_grader import docker_runner
+    ex = _FakeExec()
+    docker_runner("python:3.11-slim", tmp_path,
+                  [["pip", "install", "-e", "."], ["pytest"]], exec_=ex)
+    setup_run, test_run = ex.runs()
+    assert "--network" not in setup_run, "setup must keep the network"
+    assert "--network" in test_run and "none" in test_run
+    assert any(c[1] == "commit" for c in ex.calls), "prepared image never committed"
+
+
+def test_a_suite_with_no_setup_is_offline_from_the_start(tmp_path):
+    from engine.eval.repo_grader import docker_runner
+    ex = _FakeExec()
+    docker_runner("golang:1.22", tmp_path, [["go", "test", "./..."]], exec_=ex)
+    (only,) = ex.runs()
+    assert "--network" in only and "none" in only
+
+
+def test_a_failed_commit_downgrades_loudly_rather_than_silently(tmp_path):
+    from engine.eval.repo_grader import docker_runner
+    ex = _FakeExec(fail_commit=True)
+    _code, out = docker_runner("python:3.11-slim", tmp_path,
+                               [["pip", "install", "-e", "."], ["pytest"]], exec_=ex)
+    assert "NOT network-isolated" in out
+
+
+def test_the_throwaway_container_and_image_are_always_cleaned_up(tmp_path):
+    from engine.eval.repo_grader import docker_runner
+    ex = _FakeExec()
+    docker_runner("python:3.11-slim", tmp_path,
+                  [["pip", "install", "-e", "."], ["pytest"]], exec_=ex)
+    assert any(c[1] == "rm" for c in ex.calls)
+    assert any(c[1] == "rmi" for c in ex.calls)

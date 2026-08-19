@@ -575,14 +575,15 @@ reduced-motion setting uses, which is why there was somewhere obvious to put it.
 
 ### What is still missing
 
-- Hovering a mechanic during replay was specified as a tooltip (FR-28). It
-  landed as a **click** on the roster card or any feed row instead — the
-  artifact opens, but there is no hover state yet.
 - At 1x, a night with long idle gaps plays those gaps in real time. The tape
   lets you drag past them, but there is no skip-the-dead-air control.
 - The week-4 journal entry is still owed and is **not** written here; whoever
   built that scene should write it, rather than have it reconstructed after the
   fact from the diff.
+
+*(Two items that stood here have since been closed — see "Closing the tail" at
+the end of week 6: hovering a mechanic now shows a tooltip, and stepping moves
+one event at a time instead of one millisecond.)*
 
 ---
 
@@ -739,7 +740,53 @@ in repo mode under `--model stub`.
   from "a real bug" to "a real fix" has not been walked once.
 - **No pull request has been opened.** Branch and commit are tested against a
   real local git repo; `push` and `gh pr create` have never executed.
-- The container is **not network-isolated**, because installing dependencies
-  needs the network. Docker is the process boundary here, not a network jail.
-- Suite detection covers four shapes. A repo needing a database, a service, or
-  a bespoke toolchain will be refused — correctly, but refused.
+- Suite detection covers five shapes. A repo needing a database or a service is
+  still refused — correctly, and now with a reason that says why.
+
+
+### Closing the tail
+
+Five loose ends from weeks 5 and 6, done in one pass.
+
+**Hovering a mechanic now works (FR-28 as specified).** Point at anyone on the
+floor and a card gives their name, their job in plain English, and the last
+thing they did *at this point in the replay* — hover Chutki before she has
+reviewed anything and it says so, rather than leaking her eventual verdict.
+Clicking opens the artifact. Hit-testing is done in stage coordinates against a
+DOM tooltip rather than by making six sprites interactive: the scene is
+integer-scaled, so one divide converts the pointer and nothing has to track
+scale changes.
+
+**Stepping moves one event, not one millisecond.** The arrow keys and the new
+`‹ ›` buttons fold to an exact event index. Stepping by timestamp was fine for
+a real run and useless for a stub one, where a whole stage lands inside a
+single millisecond and one press advanced the lot.
+
+**The test run is now network-isolated.** Installing dependencies genuinely
+needs the network; running somebody else's test suite does not — and that is
+precisely the step that executes untrusted code. So the two are split: setup
+runs online, that container is committed to a throwaway image, and the tests
+run from it with `--network none`. Verified against `benjaminp/six`: the suite
+still passes offline, all three verdicts are unchanged, and the run says so in
+its own output. If the commit step ever fails it falls back to one online
+container and **says so loudly**, because an isolation guarantee that quietly
+stops holding is worse than one that was never claimed.
+
+**Detection got wider, and refusals got useful.** `tox.ini` and `pytest.ini`
+now count as Python markers; dev and test requirements files are installed; a
+Makefile with a `test:` target is accepted as a last resort — capped at
+`unverified`, since it cannot name individual tests. And a repo shipping a
+Docker Compose file is refused with the actual reason (its tests need a
+database or a broker standing up alongside them) instead of a shrug.
+
+**One bug, in the refusal path itself.** The reason was computed *after* the
+`finally` that deletes the checkout, so it read an empty directory and always
+produced the generic fallback. Every specific message would have been silently
+replaced by the vague one — a small silent zero of its own. It is computed
+while the tree still exists now.
+
+**Not done: the extra agents.** Debugger, Optimizer and Security were on the
+same list and do not belong on it. Each is a new agent *plus* the benchmark
+experiment that earns its number before it ships into repo mode — weeks of
+work, not a loose end. Writing three thin agents and skipping their numbers
+would break the rule the whole project rests on.

@@ -55,6 +55,24 @@ def _looks_like_python_tests(tree: Path) -> bool:
     return any(tree.glob("test_*.py")) or any(tree.glob("*_test.py"))
 
 
+# A suite that needs a database or a message broker standing up alongside it
+# cannot be run by `docker run` over a checkout. Detecting the intent lets the
+# refusal say WHY, which is the difference between a bug report and a shrug.
+COMPOSE_FILES = ("docker-compose.yml", "docker-compose.yaml",
+                 "compose.yml", "compose.yaml")
+
+
+def _make_has_test_target(tree: Path) -> bool:
+    mk = tree / "Makefile"
+    if not mk.is_file():
+        return False
+    try:
+        return any(line.startswith(("test:", "test :", "check:"))
+                   for line in mk.read_text(errors="replace").splitlines())
+    except OSError:
+        return False
+
+
 def detect_suite(tree: Path) -> Suite | None:
     """The repo's own test setup, or None if we do not recognise it.
 
@@ -64,16 +82,18 @@ def detect_suite(tree: Path) -> Suite | None:
     """
     tree = Path(tree)
 
-    py_marker = _has(tree, "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt")
+    py_marker = _has(tree, "pyproject.toml", "setup.py", "setup.cfg",
+                     "requirements.txt", "pytest.ini", "tox.ini")
     if py_marker and _looks_like_python_tests(tree):
         setup = [["python", "-m", "pip", "install", "--quiet", "--upgrade", "pip"]]
         # Editable install first because it is what makes `import thepackage`
         # work; requirements as a fallback for repos that are not packages.
         if _has(tree, "pyproject.toml", "setup.py", "setup.cfg"):
             setup.append(["python", "-m", "pip", "install", "--quiet", "-e", "."])
-        if (tree / "requirements.txt").is_file():
-            setup.append(["python", "-m", "pip", "install", "--quiet",
-                          "-r", "requirements.txt"])
+        for req in ("requirements.txt", "requirements-dev.txt",
+                    "dev-requirements.txt", "test-requirements.txt"):
+            if (tree / req).is_file():
+                setup.append(["python", "-m", "pip", "install", "--quiet", "-r", req])
         setup.append(["python", "-m", "pip", "install", "--quiet", "pytest"])
         return Suite(
             kind="pytest",
@@ -113,4 +133,30 @@ def detect_suite(tree: Path) -> Suite | None:
                      command=["cargo", "test", "--quiet"], per_test=False,
                      why="Cargo.toml", marker_files=["Cargo.toml"])
 
+    # Last resort. A Makefile test target says the maintainers know how to run
+    # their own suite, even when we cannot recognise the toolchain -- but it
+    # tells us nothing about individual tests, so it caps at unverified.
+    if _make_has_test_target(tree):
+        return Suite(kind="make", image="debian:stable-slim", setup=[],
+                     command=["make", "test"], per_test=False,
+                     why="a Makefile with a test target",
+                     marker_files=["Makefile"])
+
     return None
+
+
+def refusal_reason(tree: Path) -> str:
+    """Why a repo was refused, in words a person can act on."""
+    tree = Path(tree)
+    if _has(tree, *COMPOSE_FILES):
+        return ("it uses Docker Compose, so its tests need other services "
+                "(a database, a broker) standing up alongside them. Running a "
+                "suite like that is not supported yet -- and guessing would "
+                "produce a green run that never touched the code.")
+    if _has(tree, "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"):
+        return ("it looks like a Python project but I could not find any tests "
+                "(no tests/ directory, no test_*.py, no *_test.py).")
+    if (tree / "package.json").is_file():
+        return "its package.json has no \"test\" script."
+    return ("I looked for pytest, an npm test script, go.mod, Cargo.toml, and a "
+            "Makefile test target, and found none of them.")

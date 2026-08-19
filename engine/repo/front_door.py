@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from engine.errors import WorkspaceError
-from engine.repo.detect import Suite, detect_suite
+from engine.repo.detect import Suite, detect_suite, refusal_reason
 from engine.repo.workspace import _git, ensure_bare_clone
 
 # Accepts every form a person actually types, including the bare
@@ -110,6 +110,10 @@ def open_repo(url: str, issue: str, root: Path,
         created = True
     try:
         suite = detect_suite(Path(tree))
+        # Worked out HERE, while the checkout still exists: the finally below
+        # deletes it, and a reason computed afterwards would be read off an
+        # empty path and always give the generic answer.
+        reason = "" if suite else refusal_reason(Path(tree))
     finally:
         if created:
             from engine.repo.workspace import remove_worktree
@@ -117,9 +121,9 @@ def open_repo(url: str, issue: str, root: Path,
 
     if suite is None:
         raise WorkspaceError(
-            f"{repo}: no test suite I recognise (looked for pytest, npm test, "
-            "go test, cargo test). Refusing to run -- a repo whose tests I "
-            "cannot run is a repo whose fix I cannot check."
+            f"{repo}: {reason}\n"
+            "Refusing to run -- a repo whose tests I cannot run is a repo "
+            "whose fix I cannot check."
         )
 
     owner, name = repo.split("/")

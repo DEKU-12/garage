@@ -31,10 +31,16 @@ Untrusted repo code executes ONLY inside Docker (NFR-3, rules.md §4.1.5). The
 `runner` argument exists so the tests for this module can drive it without
 Docker and without a network -- it is never a way to run a checkout on the host.
 
-LIMITATION worth knowing: setup steps need the network to install dependencies,
-so the container is not network-isolated. Docker is the process boundary here,
-not a network jail. Splitting setup (online) from the test run (offline) is
-future work.
+Network: dependency installation genuinely needs the network, but the test run
+does not -- and the test run is the part that executes the repo's own code. So
+they are split: setup runs in a container with the network, that container is
+committed to a throwaway image, and the tests run from that image with
+`--network none`. A repo's test suite therefore cannot phone home, exfiltrate,
+or fetch anything at the moment it is running.
+
+If the commit step fails for any reason the run falls back to a single online
+container and says so in the captured output, because silently downgrading an
+isolation guarantee is worse than not having it.
 
 Emits: nothing directly -- the tester node emits around it.
 """
@@ -46,6 +52,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from uuid import uuid4
 
 from engine.errors import GradingInfraError
 from engine.repo.detect import Suite
@@ -122,29 +129,68 @@ def parse_failures(output: str, suite: Suite) -> frozenset[str]:
 
 # --------------------------------------------------------------- execution
 
-def docker_runner(image: str, tree: Path, argv_list: list[list[str]],
-                  timeout_s: int = DOCKER_TIMEOUT_S) -> tuple[int, str]:
-    """Run commands in a container over a bind-mounted checkout.
+def _sh(argv_list: list[list[str]]) -> str:
+    return " && ".join(" ".join(_sh_quote(a) for a in argv) for argv in argv_list)
 
-    The default runner, and the only one that ever touches real repo code.
-    """
-    script = " && ".join(" ".join(_sh_quote(a) for a in argv) for argv in argv_list)
-    cmd = [
-        "docker", "run", "--rm",
-        "--platform", "linux/amd64",
-        "-v", f"{Path(tree).resolve()}:/repo",
-        "-w", "/repo",
-        image, "sh", "-lc", script,
-    ]
+
+def _docker(args: list[str], timeout_s: int, exec_=subprocess.run) -> tuple[int, str]:
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True,
-                              timeout=timeout_s, check=False)
+        proc = exec_(["docker", *args], capture_output=True, text=True,
+                     timeout=timeout_s, check=False)
     except subprocess.TimeoutExpired as exc:
-        raise GradingInfraError(
-            f"repo suite timed out after {timeout_s}s in {image}") from exc
+        raise GradingInfraError(f"docker timed out after {timeout_s}s") from exc
     except FileNotFoundError as exc:
         raise GradingInfraError("docker not found -- repo mode requires Docker") from exc
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+
+
+def docker_runner(image: str, tree: Path, argv_list: list[list[str]],
+                  timeout_s: int = DOCKER_TIMEOUT_S, exec_=subprocess.run
+                  ) -> tuple[int, str]:
+    """Install with the network, then run the tests without it.
+
+    The default runner, and the only one that ever touches real repo code.
+
+    Splitting the two phases is the whole point: installing dependencies needs
+    the network, running somebody else's test suite does not -- and the test
+    run is precisely the step that executes untrusted code.
+    """
+    mount = ["-v", f"{Path(tree).resolve()}:/repo", "-w", "/repo",
+             "--platform", "linux/amd64"]
+    setup, test = argv_list[:-1], argv_list[-1]
+
+    if not setup:                       # nothing to install: straight to jail
+        return _docker(["run", "--rm", "--network", "none", *mount,
+                        image, "sh", "-lc", _sh([test])], timeout_s, exec_)
+
+    token = uuid4().hex[:12]
+    cid, tag = f"garage-setup-{token}", f"garage-prepared:{token}"
+    try:
+        code, out = _docker(["run", "--name", cid, *mount,
+                             image, "sh", "-lc", _sh(setup)], timeout_s, exec_)
+        if code != 0:
+            # Setup failing IS the answer -- the caller decides what it means.
+            return code, out
+
+        commit_code, commit_out = _docker(["commit", cid, tag], 300, exec_)
+        if commit_code != 0:
+            return _fallback(mount, image, argv_list, timeout_s, exec_, commit_out)
+
+        code2, out2 = _docker(["run", "--rm", "--network", "none", *mount,
+                               tag, "sh", "-lc", _sh([test])], timeout_s, exec_)
+        return code2, out + "\n[garage] tests ran with --network none\n" + out2
+    finally:
+        _docker(["rm", "-f", cid], 120, exec_)
+        _docker(["rmi", "-f", tag], 120, exec_)
+
+
+def _fallback(mount, image, argv_list, timeout_s, exec_, why: str) -> tuple[int, str]:
+    """One online container. Loudly, because an isolation guarantee that
+    quietly stops holding is worse than one that was never claimed."""
+    code, out = _docker(["run", "--rm", *mount, image, "sh", "-lc",
+                         _sh(argv_list)], timeout_s, exec_)
+    return code, ("[garage] WARNING: could not commit the prepared image, so the "
+                  "test run was NOT network-isolated.\n" + why[-300:] + "\n" + out)
 
 
 def _sh_quote(arg: str) -> str:

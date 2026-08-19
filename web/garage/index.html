@@ -69,6 +69,18 @@
   .row.has { cursor:pointer; }
   .row.has:hover { background:var(--coal-lift); }
 
+  /* Hovering a mechanic during replay (FR-28). */
+  #tip { position:fixed; z-index:30; display:none; max-width:280px;
+         background:var(--coal-lift); border:1px solid var(--walnut-lift);
+         border-radius:4px; padding:8px 10px; pointer-events:none;
+         box-shadow:0 6px 18px rgba(0,0,0,.45); }
+  #tip.on { display:block; }
+  #tip b { font:11px var(--font-display); letter-spacing:.5px; color:var(--parchment); }
+  #tip .tr { font-size:11px; color:var(--tan); }
+  #tip .td { font-size:11.5px; color:var(--tan); margin-top:3px; line-height:1.35; }
+  #tip .te { font-size:11.5px; color:var(--warm); margin-top:5px; word-break:break-word; }
+  #tip .tl { font-size:11px; color:var(--tan); margin-top:4px; }
+
   main { display:grid; grid-template-columns:1fr 258px; overflow:hidden; }
   #stage { display:grid; place-items:center; overflow:hidden; background:var(--coal); }
   #stage canvas { image-rendering:pixelated; }
@@ -156,7 +168,9 @@
 
 <div id="transport">
   <button id="restart" title="back to the start">&#9198;</button>
+  <button id="stepb" title="one event back (left arrow)">&#8249;</button>
   <button id="play" title="play / pause (space)">&#9654;</button>
+  <button id="stepf" title="one event forward (right arrow)">&#8250;</button>
   <span class="speeds">
     <button data-speed="1" class="on">1x</button>
     <button data-speed="4">4x</button>
@@ -169,6 +183,8 @@
 </div>
 
 <div id="feed"></div>
+
+<div id="tip"></div>
 
 <div id="art">
   <div id="arthead">

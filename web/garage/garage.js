@@ -633,13 +633,27 @@ function resetScene() {
 
 /* Rewind or jump: rebuild from event zero. Only ever called when moving
  * BACKWARDS or landing somewhere new -- going forwards just keeps applying. */
-function foldTo(t) {
+/* Fold exactly N events. Index-based, because time cannot separate them:
+ * a stub run emits a whole stage inside one millisecond, so stepping by
+ * timestamp advances the lot and you never see the individual moves. */
+function foldToCount(n, clockAt = null) {
+  n = Math.max(0, Math.min(LOG.length, n));
   SILENT = true;
   resetScene();
-  let i = 0;
-  while (i < LOG.length && tms(LOG[i]) <= t) { applyToScene(LOG[i]); i++; }
-  cursor = i;
+  for (let i = 0; i < n; i++) applyToScene(LOG[i]);
+  cursor = n;
   SILENT = false;
+  finishFold(clockAt !== null ? clockAt
+             : (n ? tms(LOG[n - 1]) : runSpan()[0]));
+}
+
+function foldTo(t) {
+  let i = 0;
+  while (i < LOG.length && tms(LOG[i]) <= t) i++;
+  foldToCount(i, t);
+}
+
+function finishFold(t) {
   const shownRows = LOG.slice(Math.max(0, cursor - FEED_TAIL), cursor);
   $("feed").innerHTML = "";
   shownRows.forEach(feedRow);
@@ -786,6 +800,60 @@ function paintReadout() {
   $("elapsed").textContent = `+${String(Math.floor(secs / 60)).padStart(2,"0")}:${String(secs % 60).padStart(2,"0")}`;
 }
 
+/* Hovering a mechanic (FR-28). Hit-testing in stage space against a DOM
+ * tooltip beats making six sprites interactive: the scene is integer-scaled,
+ * so one divide converts the pointer and nothing has to track scale changes. */
+function stagePoint(ev) {
+  const cv = app.canvas, r = cv.getBoundingClientRect();
+  const k = r.width / W;
+  return { x: (ev.clientX - r.left) / k, y: (ev.clientY - r.top) / k };
+}
+
+function agentAt(pt) {
+  let best = null;
+  for (const k of AGENTS) {
+    const a = avatars[k];
+    const dx = pt.x - a.x, dy = pt.y - (a.y - CHARS[k].tall / 2);
+    const d = Math.hypot(dx, dy * 0.8);
+    if (d < 22 && (!best || d < best.d)) best = { k, d };
+  }
+  return best && best.k;
+}
+
+function lastEventFor(k) {
+  for (let i = cursor - 1; i >= 0; i--) if (LOG[i].agent === k) return LOG[i];
+  return null;
+}
+
+function wireHover() {
+  const tip = $("tip");
+  app.canvas.addEventListener("mousemove", ev => {
+    const k = agentAt(stagePoint(ev));
+    if (!k) { tip.classList.remove("on"); app.canvas.style.cursor = ""; return; }
+    const e = lastEventFor(k);
+    const kv = e ? Object.entries(e.payload || {})
+      .filter(([n]) => n !== "artifact")
+      .slice(0, 3).map(([n, v]) => `${n}=${v}`).join(" ") : "";
+    tip.innerHTML =
+      `<b>${shown(k)}</b> <span class="tr">${CHARS[k].role}</span>` +
+      `<div class="td">${ROLES[k]}</div>` +
+      (e ? `<div class="te">${e.type}${kv ? " · " + kv : ""}</div>` +
+           `<div class="tl">click to see what it wrote &rarr;</div>`
+         : `<div class="te">nothing yet at this point in the run</div>`);
+    tip.classList.add("on");
+    const pad = 14;
+    tip.style.left = Math.min(ev.clientX + pad, innerWidth - tip.offsetWidth - 8) + "px";
+    tip.style.top = Math.max(8, ev.clientY - tip.offsetHeight - pad) + "px";
+    app.canvas.style.cursor = "pointer";
+  });
+  app.canvas.addEventListener("mouseleave", () => $("tip").classList.remove("on"));
+  app.canvas.addEventListener("click", ev => {
+    const k = agentAt(stagePoint(ev));
+    const e = k && lastEventFor(k);
+    if (e) showArtifact(e);
+  });
+}
+
 /* ------------------------------------------------- artifacts (FR-28) */
 
 /* Payloads carry pointers, never blobs (ADR-5), so the diff or the test log is
@@ -924,13 +992,17 @@ function wireTransport() {
   $("play").onclick = () => {
     if (!LOG.length) return;
     const [, t1] = runSpan();
-    if (clock >= t1) foldTo(runSpan()[0]);       // replay from the top
+    if (clock >= t1) foldToCount(0);            // replay from the top
     playing = !playing;
     $("play").textContent = playing ? "❚❚" : "▶";
     if (playing) setLive(false);
   };
-  $("restart").onclick = () => { foldTo(runSpan()[0]); playing = false;
+  $("restart").onclick = () => { foldToCount(0); playing = false;
                                  $("play").textContent = "▶"; setLive(false); };
+  $("stepb").onclick = () => { playing = false; $("play").textContent = "▶";
+                               setLive(false); foldToCount(cursor - 1); };
+  $("stepf").onclick = () => { playing = false; $("play").textContent = "▶";
+                               setLive(false); foldToCount(cursor + 1); };
   $("golive").onclick = () => {
     setLive(true); playing = false; $("play").textContent = "▶";
     if (LOG.length) advanceTo(runSpan()[1] + 1);
@@ -962,8 +1034,15 @@ function wireTransport() {
   addEventListener("keydown", ev => {
     if (ev.target.tagName === "SELECT") return;
     if (ev.code === "Space") { ev.preventDefault(); $("play").click(); }
-    if (ev.key === "ArrowRight" && cursor < LOG.length) advanceTo(tms(LOG[cursor]));
-    if (ev.key === "ArrowLeft" && cursor > 1) foldTo(tms(LOG[cursor - 2]));
+    // one event per press, whatever the clock says
+    if (ev.key === "ArrowRight" && cursor < LOG.length) {
+      playing = false; $("play").textContent = "\u25B6"; setLive(false);
+      foldToCount(cursor + 1);
+    }
+    if (ev.key === "ArrowLeft" && cursor > 0) {
+      playing = false; $("play").textContent = "\u25B6"; setLive(false);
+      foldToCount(cursor - 1);
+    }
   });
 }
 
@@ -981,7 +1060,7 @@ async function boot() {
   await app.init({ width: W, height: H, background: T.coal,
                    antialias: false, roundPixels: true, autoDensity: false });
   $("stage").appendChild(app.canvas);
-  buildCrew(); buildStrip(); wireTransport();
+  buildCrew(); buildStrip(); wireTransport(); wireHover();
 
   layers.root = new PIXI.Container();
   app.stage.addChild(layers.root);
