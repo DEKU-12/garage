@@ -30,6 +30,7 @@ from typing import Any, Callable
 
 from langgraph.graph import END, START, StateGraph
 
+from engine.accounting import ledger as ledger_mod
 from engine.agents.builder import build_patch
 from engine.agents.reviewer import review_patch
 from engine.agents.scout import build_context_pack, render_pack
@@ -57,6 +58,19 @@ def _write(path: Path, text: str) -> None:
 
 def _attempt_dir(run_dir: Path, task_id: str, n: int) -> Path:
     return run_dir / "tasks" / task_id / "attempts" / str(n)
+
+
+def _bill(run_dir: Path, task_id: str, attempt: int, role: str, usage: Any) -> None:
+    """One ledger row per model call, written immediately.
+
+    Written now rather than accumulated in memory: a crashed run must still
+    account for what it already spent (NFR-4). $/solved is summed from these
+    rows by report/aggregate.py, never from a running total.
+    """
+    ledger_mod.append(run_dir / "ledger.csv", [ledger_mod.row_for(
+        task_id, attempt, role, usage.model,
+        usage.prompt_tokens, usage.completion_tokens, usage.latency_ms,
+    )])
 
 
 def _tokens_used(state: TaskState) -> int:
@@ -128,6 +142,7 @@ def build_graph(
             return {"attempts": [*state.get("attempts", []), attempt],
                     "status": "crashed", "failure_type": "model_error"}
 
+        _bill(run_dir, state["task_id"], n, "builder", usage)
         attempt["usage"] = {"prompt_tokens": usage.prompt_tokens,
                             "completion_tokens": usage.completion_tokens,
                             "latency_ms": usage.latency_ms,
@@ -234,6 +249,7 @@ def build_graph(
             attempts[-1] = attempt
             return {"attempts": attempts}
 
+        _bill(run_dir, state["task_id"], attempt["n"], "reviewer", usage)
         adir = _attempt_dir(run_dir, state["task_id"], attempt["n"])
         _write(adir / "prompt_reviewer.md", user_msg)
         _write(adir / "review.md", review.raw)

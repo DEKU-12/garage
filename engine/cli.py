@@ -21,7 +21,16 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from engine.batch import (
+    ARMS,
+    append_result,
+    completed_task_ids,
+    disk_free_gb,
+    remove_image,
+    select_tasks,
+)
 from engine.graph import build_graph
+from engine.report.aggregate import gate_lift, render, summarize
 from engine.state import TaskState, new_state
 from engine.agents.stub import (
     REJECT_RUNG_3,
@@ -131,6 +140,23 @@ def run_one(task: Task, cfg: RunConfig, run_dir: Path, stub: StubBackend | None,
     }
 
 
+def _stub_for(task: Task, args: argparse.Namespace) -> StubBackend:
+    """Canned responses for one task, scripted by the CLI flags."""
+    canned = {"prose": PROSE_ONLY, "malformed": MALFORMED_DIFF, "empty": EMPTY}
+    failures = getattr(args, "stub_failures", "") or ""
+    before = [canned[name] for name in failures.split(",") if name]
+    reviewer_before = [REJECT_RUNG_3] if getattr(args, "stub_reject", False) else []
+    return StubBackend(
+        scripts={
+            "builder": builder_script(task.gold_patch, before=before),
+            # Without its own script the reviewer would be handed the builder's
+            # cursor and reply with a diff -- parsed as ACCEPT with a warning.
+            # Correct, but it never exercises the gate.
+            "reviewer": reviewer_script(before=reviewer_before),
+        }
+    )
+
+
 def cmd_run_one(args: argparse.Namespace) -> int:
     task = load_task(args.task)
     run_id = args.run_id or f"r_{datetime.now(timezone.utc):%Y%m%d_%H%M%S}"
@@ -152,22 +178,7 @@ def cmd_run_one(args: argparse.Namespace) -> int:
         print("STUB RUN -- canned responses, no model called. NOT A RESULT.")
         print("Nothing from this run may appear in a report (rules.md §4.1.1).")
         print("=" * 68)
-        canned = {"prose": PROSE_ONLY, "malformed": MALFORMED_DIFF, "empty": EMPTY}
-        before = [canned[name] for name in args.stub_failures.split(",") if name]
-        if before:
-            print(f"scripted failures before the fix: {args.stub_failures}")
-        reviewer_before = [REJECT_RUNG_3] if args.stub_reject else []
-        if reviewer_before:
-            print("scripted simplicity rejection before accept")
-        stub = StubBackend(
-            scripts={
-                "builder": builder_script(task.gold_patch, before=before),
-                # Without its own script the reviewer would be handed the
-                # builder's cursor and reply with a diff -- parsed as ACCEPT
-                # with a warning. Correct, but it never exercises the gate.
-                "reviewer": reviewer_script(before=reviewer_before),
-            }
-        )
+        stub = _stub_for(task, args)
 
     print(f"\ntask {task.task_id}  ({task.repo} @ {task.base_commit[:12]})")
     print(f"run  {run_id}  model={args.model}")
@@ -193,6 +204,94 @@ def cmd_run_one(args: argparse.Namespace) -> int:
     return 0 if row["solved"] else 1
 
 
+def cmd_run_batch(args: argparse.Namespace) -> int:
+    """N tasks x one or two gate arms, resumable, one image on disk at a time."""
+    arms = [ARMS[a] for a in args.arms.split(",") if a]
+    task_ids = select_tasks(args.tasks, repo=args.repo or None)
+    if not task_ids:
+        print("no tasks matched")
+        return 2
+
+    base = args.run_id or f"b_{datetime.now(timezone.utc):%Y%m%d_%H%M%S}"
+    run_dirs = {arm.label: REPO_ROOT / "runs" / f"{base}_{arm.label}" for arm in arms}
+    done = {arm.label: completed_task_ids(run_dirs[arm.label] / "results.csv")
+            for arm in arms}
+
+    print(f"batch {base}: {len(task_ids)} task(s) x {len(arms)} arm(s) "
+          f"[{', '.join(a.label for a in arms)}]  model={args.model}")
+    already = sum(len(v) for v in done.values())
+    if already:
+        print(f"resuming: {already} task-arm(s) already complete, skipping them")
+    print(f"disk free: {disk_free_gb():.1f} GB")
+
+    started = time.monotonic()
+    completed = 0
+    for i, task_id in enumerate(task_ids, 1):
+        if all(task_id in done[arm.label] for arm in arms):
+            print(f"\n[{i}/{len(task_ids)}] {task_id} -- done already, skipping")
+            continue
+
+        task = load_task(task_id)
+        print(f"\n{'=' * 68}\n[{i}/{len(task_ids)}] {task_id}")
+
+        for arm in arms:
+            if task_id in done[arm.label]:
+                print(f"  arm {arm.label}: already done")
+                continue
+            # Both arms run while the image is warm: ~17 of a cold task's 20
+            # minutes was the pull, so pulling once for two runs halves it.
+            print(f"\n--- arm: tester gate {arm.label.upper()} ---")
+            run_dir = run_dirs[arm.label]
+            cfg = RunConfig(
+                run_id=f"{base}_{arm.label}",
+                task_ids=[task_id],
+                model_for_role={r: args.model for r in
+                                ("orchestrator", "scout", "builder", "tester",
+                                 "reviewer", "scribe")},
+                tester_gate=arm.tester_gate,
+                scout=not args.no_scout,
+                prompt_hashes=prompt_hashes(PROMPTS),
+            )
+            cfg.freeze_to(run_dir / "config.json")
+            stub = _stub_for(task, args) if cfg.is_stub_run else None
+            row = run_one(task, cfg, run_dir, stub)
+            append_result(run_dir / "results.csv", row)
+            completed += 1
+            print(f"  -> solved={row['solved']} attempts={row['attempts']} "
+                  f"{row['failure_type'] or ''}")
+
+        if not args.keep_images:
+            remove_image(task.image)
+        print(f"  disk free: {disk_free_gb():.1f} GB  "
+              f"elapsed: {(time.monotonic() - started) / 60:.1f} min")
+
+    mins = (time.monotonic() - started) / 60
+    print(f"\n{'=' * 68}")
+    print(f"batch done: {completed} task-arm run(s) in {mins:.1f} min"
+          + (f" ({mins / completed:.1f} min each)" if completed else ""))
+    for arm in arms:
+        print(f"  {arm.label}: {run_dirs[arm.label]}")
+    print(f"\nreport with:  uv run python -m engine.cli report "
+          + " ".join(f"runs/{base}_{a.label}" for a in arms))
+    return 0
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    """Turn run logs into the tables. The only source of reported numbers."""
+    summaries = [summarize(Path(d)) for d in args.run_dirs]
+    print(render(summaries, title=args.title))
+    if len(summaries) == 2:
+        off = next((s for s in summaries if not s.gates.get("tester_gate")), None)
+        on = next((s for s in summaries if s.gates.get("tester_gate")), None)
+        if off and on:
+            print("## M1 -- gate lift\n")
+            print(gate_lift(off, on))
+    if args.out:
+        Path(args.out).write_text(render(summaries, title=args.title), encoding="utf-8")
+        print(f"\nwritten to {args.out}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # rules.md §1: .env at project root, override=True. A key already in
     # the environment still works -- load_dotenv is a no-op without a file.
@@ -216,6 +315,30 @@ def main(argv: list[str] | None = None) -> int:
                           "the fix, from prose,malformed,empty -- exercises the "
                           "retry loop offline")
     one.set_defaults(func=cmd_run_one)
+
+    batch = sub.add_parser("run-batch",
+                           help="N tasks x gate arms, resumable, disk-bounded")
+    batch.add_argument("--tasks", type=int, default=5,
+                       help="how many tasks (deterministic order)")
+    batch.add_argument("--repo", default="django/django",
+                       help="restrict to one repo; '' for all of SWE-bench Lite")
+    batch.add_argument("--model", default=STUB_MODEL)
+    batch.add_argument("--arms", default="on,off",
+                       help="tester-gate arms to run: on, off, or on,off (FR-10)")
+    batch.add_argument("--run-id", default=None,
+                       help="reuse the same id to RESUME an interrupted batch")
+    batch.add_argument("--no-scout", action="store_true")
+    batch.add_argument("--keep-images", action="store_true",
+                       help="skip pruning -- needs ~4.2 GB of disk per task")
+    batch.add_argument("--stub-failures", default="")
+    batch.add_argument("--stub-reject", action="store_true")
+    batch.set_defaults(func=cmd_run_batch)
+
+    rep = sub.add_parser("report", help="turn run logs into the M1-M3 tables")
+    rep.add_argument("run_dirs", nargs="+", help="one or more runs/<id> paths")
+    rep.add_argument("--title", default="Results")
+    rep.add_argument("--out", default=None, help="also write the markdown here")
+    rep.set_defaults(func=cmd_report)
 
     args = parser.parse_args(argv)
     return int(args.func(args))
