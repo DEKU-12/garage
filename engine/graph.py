@@ -331,6 +331,16 @@ def build_graph(
             return "fail"
         return "reviewer" if cfg.reviewer_gate else "ship"
 
+    def after_tester_gate_off(state: TaskState) -> str:
+        """One shot: a passing patch may still be reviewed, a failing one ends."""
+        if state.get("status") == "crashed":
+            return "fail"
+        attempt = last_attempt(state)
+        assert attempt is not None
+        if not attempt.get("patch_applied") or attempt.get("test_verdict") != "pass":
+            return "fail"
+        return "reviewer"
+
     def after_reviewer(state: TaskState) -> str:
         attempt = last_attempt(state)
         assert attempt is not None
@@ -379,9 +389,24 @@ def build_graph(
         )
     else:
         # Gate OFF: still graded, because the score is the experiment -- but
-        # there is NO edge back to the builder. One shot, whatever it produces.
+        # there is NO edge back to the builder for a failing test.
         graph.add_edge("builder", "tester")
-        graph.add_edge("tester", "reviewer" if cfg.reviewer_gate else "ship")
+        if cfg.reviewer_gate:
+            # The reviewer only ever sees a patch the TESTS approved. Routing
+            # to it unconditionally let it reject a failing patch and send the
+            # work back -- a retry inside the arm whose definition is having
+            # none, which would flatter the OFF baseline and shrink the
+            # measured gate lift. It also contradicts the reviewer's contract:
+            # correctness is not its call.
+            graph.add_conditional_edges(
+                "tester", after_tester_gate_off,
+                {"reviewer": "reviewer", "fail": "fail"},
+            )
+        else:
+            graph.add_conditional_edges(
+                "tester", after_tester_gate_off,
+                {"reviewer": "ship", "fail": "fail"},
+            )
 
     graph.add_edge("ship", END)
     graph.add_edge("fail", END)

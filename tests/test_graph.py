@@ -261,3 +261,39 @@ def test_repair_can_be_turned_off_and_then_the_bare_hunk_fails(harness) -> None:
     final = _run(cfg, stub, run_dir)
     assert final["status"] != "shipped"
     assert final["failure_type"] == "patch_apply_error"
+
+
+def test_gate_off_never_retries_even_when_the_reviewer_rejects(harness) -> None:
+    """The OFF arm's definition is 'no retries'. The reviewer must not add one.
+
+    Routing tester -> reviewer unconditionally let the reviewer reject a
+    FAILING patch and send it back, giving the OFF arm two builder runs. That
+    flatters the baseline and shrinks the measured gate lift -- it showed up as
+    attempts=2 in the E1 pilot's OFF arm, which is supposed to be all 1s.
+    """
+    make, run_dir = harness
+    cfg, _ = make(["fail"], tester_gate=False)
+    stub = StubBackend(scripts={"builder": builder_script(GOLD),
+                                "reviewer": [REJECT_RUNG_3]})
+    final = _run(cfg, stub, run_dir)
+    assert len(final["attempts"]) == 1
+
+
+def test_gate_off_does_not_review_a_patch_the_tests_rejected(harness) -> None:
+    """Correctness is not the reviewer's call -- it never sees a failing patch."""
+    make, run_dir = harness
+    cfg, _ = make(["fail"], tester_gate=False)
+    stub = StubBackend(scripts={"builder": builder_script(GOLD),
+                                "reviewer": reviewer_script()})
+    final = _run(cfg, stub, run_dir)
+    assert final["attempts"][0]["review_verdict"] is None
+
+
+def test_gate_off_still_reviews_a_patch_that_passed(harness) -> None:
+    make, run_dir = harness
+    cfg, _ = make(["pass"], tester_gate=False)
+    stub = StubBackend(scripts={"builder": builder_script(GOLD),
+                                "reviewer": reviewer_script()})
+    final = _run(cfg, stub, run_dir)
+    assert final["status"] == "shipped"
+    assert final["attempts"][0]["review_verdict"] == "accept"
