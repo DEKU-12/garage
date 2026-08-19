@@ -32,6 +32,7 @@ from engine.batch import (
     select_tasks,
 )
 from engine.errors import QuotaExhausted
+from engine.events import EventLog
 from engine.graph import build_graph
 from engine.report.aggregate import common_tasks, gate_lift, render, summarize
 from engine.state import TaskState, new_state
@@ -76,7 +77,8 @@ def _attempt_dir(run_dir: Path, task_id: str, n: int) -> Path:
 
 
 def run_one(task: Task, cfg: RunConfig, run_dir: Path, stub: StubBackend | None,
-            max_attempts: int | None = None, context: str = "") -> dict[str, object]:
+            max_attempts: int | None = None, context: str = "",
+            events: EventLog | None = None) -> dict[str, object]:
     """One task through the state machine. Returns its results row.
 
     Never raises for a model or patch failure -- those are outcomes, recorded
@@ -101,7 +103,12 @@ def run_one(task: Task, cfg: RunConfig, run_dir: Path, stub: StubBackend | None,
     if not cfg.scout and not context:
         print("  scout: OFF (builder sees the issue only)")
 
-    machine = build_graph(cfg, run_dir, stub)
+    if events is not None:
+        events.emit("task_started", agent="orchestrator", task_id=task.task_id,
+                    repo=task.repo, base_commit=task.base_commit,
+                    fail_to_pass=len(task.fail_to_pass))
+
+    machine = build_graph(cfg, run_dir, stub, events=events)
     # The graph's own recursion guard. Each builder run costs at most four node
     # visits (builder, tester, reviewer, routing), plus scout and the terminal
     # node -- generous headroom over the 1+3+1 termination proof.
@@ -177,6 +184,12 @@ def cmd_run_one(args: argparse.Namespace) -> int:
     )
     cfg.freeze_to(run_dir / "config.json")
 
+    events = EventLog.for_run(run_dir, run_id)
+    events.emit("run_started", agent="orchestrator",
+                model=args.model, tasks=1,
+                gates={"tester": cfg.tester_gate, "reviewer": cfg.reviewer_gate,
+                       "scout": cfg.scout})
+
     stub = None
     if cfg.is_stub_run:
         print("=" * 68)
@@ -190,7 +203,7 @@ def cmd_run_one(args: argparse.Namespace) -> int:
 
     max_attempts = args.max_attempts or (cfg.max_correctness_retries + 1)
     try:
-        row = run_one(task, cfg, run_dir, stub, max_attempts)
+        row = run_one(task, cfg, run_dir, stub, max_attempts, events=events)
     except WorkspaceError as exc:
         print(f"\nWORKSPACE FAILURE: {exc}")
         return 3
@@ -205,6 +218,7 @@ def cmd_run_one(args: argparse.Namespace) -> int:
     print(f"{'SOLVED' if row['solved'] else 'NOT SOLVED'}  "
           f"attempts={row['attempts']}  failure={row['failure_type'] or '-'}  "
           f"{row['wall_ms'] / 1000:.1f}s")
+    events.emit("run_finished", agent="orchestrator", task_arms=1)
     print(f"artifacts: runs/{run_id}/")
     return 0 if row["solved"] else 1
 
@@ -248,6 +262,19 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
         print(f"resuming: {already} task-arm(s) already complete, skipping them")
     print(f"disk free: {disk_free_gb():.1f} GB")
 
+    arm_logs = {
+        arm.label: EventLog.for_run(run_dirs[arm.label], f"{base}_{arm.label}")
+        for arm in arms
+    }
+    for arm in arms:
+        arm_logs[arm.label].emit(
+            "run_started", agent="orchestrator", model=args.model,
+            tasks=len(task_ids),
+            gates={"tester": arm.tester_gate,
+                   "reviewer": not args.no_reviewer_gate,
+                   "scout": not args.no_scout},
+        )
+
     started = time.monotonic()
     completed = 0
     for i, task_id in enumerate(task_ids, 1):
@@ -287,9 +314,10 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
                 prompt_hashes=prompt_hashes(PROMPTS),
             )
             cfg.freeze_to(run_dir / "config.json")
+            arm_events = arm_logs[arm.label]
             stub = _stub_for(task, args) if cfg.is_stub_run else None
             try:
-                row = run_one(task, cfg, run_dir, stub)
+                row = run_one(task, cfg, run_dir, stub, events=arm_events)
             except QuotaExhausted as exc:
                 # Stop the batch rather than grinding the rest of the task list
                 # into identical failures. Nothing is written for this task, so
@@ -316,6 +344,9 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
               f"elapsed: {(time.monotonic() - started) / 60:.1f} min")
 
     mins = (time.monotonic() - started) / 60
+    for arm in arms:
+        arm_logs[arm.label].emit("run_finished", agent="orchestrator",
+                                 task_arms=completed, wall_min=round(mins, 1))
     print(f"\n{'=' * 68}")
     print(f"batch done: {completed} task-arm run(s) in {mins:.1f} min"
           + (f" ({mins / completed:.1f} min each)" if completed else ""))

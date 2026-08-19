@@ -36,6 +36,7 @@ from engine.agents.reviewer import review_patch
 from engine.agents.scout import build_context_pack, render_pack
 from engine.agents.stub import StubBackend
 from engine.config import RunConfig
+from engine.events import EventLog
 from engine.errors import (
     GradingInfraError,
     ModelCallError,
@@ -89,17 +90,28 @@ def build_graph(
     run_dir: Path,
     stub: StubBackend | None = None,
     log: Callable[[str], None] = print,
+    events: EventLog | None = None,
 ) -> Any:
     """Compile the state machine for one RunConfig.
 
     Run-constant things are closed over rather than carried in state: the state
     is the task's story, not the process's plumbing.
+
+    `events` is optional so the engine still runs headless (weeks 1-2 had no
+    log at all). When present, every observable transition is emitted -- the UI
+    reads nothing else (FR-18).
     """
+
+    def emit(type: str, agent: str = "system", task_id: str | None = None,
+             **payload: Any) -> None:
+        if events is not None:
+            events.emit(type, agent=agent, task_id=task_id, **payload)
 
     # ---------------------------------------------------------------- nodes
 
     def scout_node(state: TaskState) -> dict[str, Any]:
         """Find the code the fix belongs in. Read-only on the repo."""
+        emit("agent_activated", "scout", state["task_id"])
         with attempt_worktree(state["repo"], state["base_commit"],
                               state["task_id"], 0, WORKSPACES) as tree:
             pack = build_context_pack(state["issue"], tree, cfg.context_token_budget)
@@ -108,6 +120,12 @@ def build_graph(
         log(f"  scout: {len(pack)} span(s), ~{len(context) // 4} tokens")
         for entry in pack:
             log(f"    {entry.file}:{entry.start}-{entry.end}")
+        emit("context_pack_ready", "scout", state["task_id"],
+             spans=len(pack), tokens=len(context) // 4,
+             files=sorted({e.file for e in pack}),
+             artifact=f"tasks/{state['task_id']}/context_pack.md")
+        emit("agent_done", "scout", state["task_id"])
+        emit("handoff", "scout", state["task_id"], to="builder")
         return {
             "context": context,
             "context_pack": [
@@ -122,6 +140,10 @@ def build_graph(
         started = time.monotonic()
         adir = _attempt_dir(run_dir, state["task_id"], n)
         log(f"\n--- attempt {n}/{cfg.max_builder_runs} ---")
+        emit("agent_activated", "builder", state["task_id"], attempt=n)
+        if n > 1:
+            emit("retry", "builder", state["task_id"], attempt=n,
+                 reason=(state.get("feedback") or "")[:200])
 
         attempt = Attempt(n=n, patch="", patch_applied=False, apply_mode="",
                           failure="", test_verdict=None, test_output=None,
@@ -141,6 +163,9 @@ def build_graph(
                 f"{cfg.per_task_token_cap}) -- stopping")
             attempt["failure"] = "budget_exceeded"
             attempt["wall_ms"] = 0
+            emit("budget_exceeded", "builder", state["task_id"], attempt=n,
+                 tokens=_tokens_used(state),
+                 usd=round(state.get("spend_usd", 0.0), 4))
             return {"attempts": [*state.get("attempts", []), attempt],
                     "status": "budget_exceeded", "failure_type": "budget_exceeded"}
 
@@ -168,6 +193,9 @@ def build_graph(
         spent = state.get("spend_usd", 0.0) + _bill(
             run_dir, state["task_id"], n, "builder", usage
         )
+        emit("cost_tick", "builder", state["task_id"], attempt=n,
+             usd=round(spent, 4), prompt_tokens=usage.prompt_tokens,
+             completion_tokens=usage.completion_tokens)
         attempt["usage"] = {"prompt_tokens": usage.prompt_tokens,
                             "completion_tokens": usage.completion_tokens,
                             "latency_ms": usage.latency_ms,
@@ -198,6 +226,8 @@ def build_graph(
                 validate_diff(diff, tree)
             except PatchError as exc:
                 log(f"  patch rejected: {exc}")
+                emit("patch_apply_error", "builder", state["task_id"],
+                     attempt=n, stage="validate", reason=str(exc)[:300])
                 attempt["failure"] = "patch_rejected"
                 attempt["wall_ms"] = int((time.monotonic() - started) * 1000)
                 update["feedback"] = str(exc)
@@ -207,6 +237,9 @@ def build_graph(
             applied = apply_patch(diff, tree)
             if not applied.applied:
                 log(f"  git apply failed: {applied.stderr.splitlines()[:1]}")
+                emit("patch_apply_error", "builder", state["task_id"],
+                     attempt=n, stage="apply",
+                     reason=(applied.stderr.splitlines() or [""])[0][:300])
                 attempt["failure"] = "apply_failed"
                 attempt["wall_ms"] = int((time.monotonic() - started) * 1000)
                 update["feedback"] = applied.stderr  # git's own words, verbatim
@@ -221,6 +254,12 @@ def build_graph(
         attempt["apply_mode"] = applied.mode
         attempt["wall_ms"] = int((time.monotonic() - started) * 1000)
         log(f"  applied ({applied.mode}), {len(submission.splitlines())} line patch")
+        emit("patch_produced", "builder", state["task_id"], attempt=n,
+             lines=len(submission.splitlines()), mode=applied.mode,
+             files=applied.files,
+             artifact=f"tasks/{state['task_id']}/attempts/{n}/patch.diff")
+        emit("agent_done", "builder", state["task_id"], attempt=n)
+        emit("handoff", "builder", state["task_id"], to="tester")
         update["attempts"] = [*state.get("attempts", []), attempt]
         return update
 
@@ -234,12 +273,16 @@ def build_graph(
             attempts[-1] = attempt
             return {"attempts": attempts}
 
+        emit("agent_activated", "tester", state["task_id"], attempt=attempt["n"])
+        emit("tests_run", "tester", state["task_id"], attempt=attempt["n"])
         try:
             result = grade(state["task_id"], attempt["patch"],
                            f"{cfg.run_id}_a{attempt['n']}", run_dir,
                            image=state.get("image", ""))
         except GradingInfraError as exc:
             log(f"  GRADING INFRA FAILURE: {exc}")
+            emit("task_failed", "tester", state["task_id"],
+                 reason="crashed", detail=str(exc)[:300])
             attempt["test_verdict"] = None
             attempt["failure"] = "grading_infra_error"
             attempts[-1] = attempt
@@ -253,6 +296,11 @@ def build_graph(
         attempt["test_output"] = result.log_tail[-2000:]
         attempts[-1] = attempt
         log(f"  tests: {result.verdict} ({result.wall_ms / 1000:.1f}s)")
+        emit("gate_verdict", "tester", state["task_id"], gate="tests",
+             verdict=result.verdict, attempt=attempt["n"],
+             wall_ms=result.wall_ms,
+             artifact=f"tasks/{state['task_id']}/attempts/{attempt['n']}/test_output.txt")
+        emit("agent_done", "tester", state["task_id"], attempt=attempt["n"])
 
         if result.verdict == "fail":
             return {"attempts": attempts,
@@ -265,6 +313,7 @@ def build_graph(
         attempts = list(state.get("attempts", []))
         attempt = dict(attempts[-1])
 
+        emit("agent_activated", "reviewer", state["task_id"], attempt=attempt["n"])
         try:
             review, user_msg, usage = review_patch(attempt["patch"], cfg, stub)
         except QuotaExhausted:
@@ -280,6 +329,9 @@ def build_graph(
         spent = state.get("spend_usd", 0.0) + _bill(
             run_dir, state["task_id"], attempt["n"], "reviewer", usage
         )
+        emit("cost_tick", "reviewer", state["task_id"], attempt=attempt["n"],
+             usd=round(spent, 4), prompt_tokens=usage.prompt_tokens,
+             completion_tokens=usage.completion_tokens)
         adir = _attempt_dir(run_dir, state["task_id"], attempt["n"])
         _write(adir / "prompt_reviewer.md", user_msg)
         _write(adir / "review.md", review.raw)
@@ -287,6 +339,11 @@ def build_graph(
         attempt["review_verdict"] = review.verdict
         attempt["review_reason"] = review.reason
         attempts[-1] = attempt
+        emit("gate_verdict", "reviewer", state["task_id"], gate="review",
+             verdict=review.verdict, rung=review.rung, attempt=attempt["n"],
+             parse_warning=review.parse_warning,
+             artifact=f"tasks/{state['task_id']}/attempts/{attempt['n']}/review.md")
+        emit("agent_done", "reviewer", state["task_id"], attempt=attempt["n"])
         note = " (unparseable, treated as ACCEPT)" if review.parse_warning else ""
         log(f"  review: {review.verdict}"
             + (f" rung {review.rung}" if review.rung else "") + note)
@@ -308,6 +365,9 @@ def build_graph(
     def ship_node(state: TaskState) -> dict[str, Any]:
         attempt = last_attempt(state)
         if attempt and attempt.get("test_verdict") == "pass":
+            emit("shipped", "orchestrator", state["task_id"],
+                 attempts=len(state.get("attempts", [])),
+                 usd=round(state.get("spend_usd", 0.0), 4))
             return {"status": "shipped", "failure_type": ""}
         return {"status": state.get("status") or "failed_tests",
                 "failure_type": state.get("failure_type") or "failed_tests"}
@@ -319,6 +379,8 @@ def build_graph(
             return {}
         never_applied = all(not a.get("patch_applied") for a in attempts)
         failure = "patch_apply_error" if never_applied else "failed_tests"
+        emit("task_failed", "orchestrator", state["task_id"], reason=failure,
+             attempts=len(attempts), usd=round(state.get("spend_usd", 0.0), 4))
         return {"status": failure, "failure_type": failure}
 
     # ------------------------------------------------------------- routing
