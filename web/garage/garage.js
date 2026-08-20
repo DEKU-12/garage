@@ -514,6 +514,58 @@ function setWorkLamp(name) {                     // §2.2: singular --work glow
 const S = { task:"—", job:"—", attempt:"—", tests:[], review:[], spend:0,
             shipped:0, failed:0, retries:0, active:null };
 
+/* ------------------------------------------------------- the stage queue
+ *
+ * The engine emits a whole stage inside one millisecond, so applying events
+ * as they arrive put three mechanics on the floor at once and nobody could
+ * follow who was doing what. The scene now ACTS THE RUN OUT: events wait in a
+ * queue and are performed one at a time, each waiting for the last to finish
+ * -- walk out, work, walk back -- before the next begins.
+ *
+ * Folding (scrubbing) bypasses the queue and snaps, because reconstructing a
+ * moment must stay instant. The invariant holds where it matters: any point on
+ * the tape is a pure fold of the log; the queue only governs how those same
+ * events are performed when playing. */
+let PENDING = [], performing = null;
+
+function clearQueue() { PENDING = []; performing = null; }
+
+/* Has the current event finished being acted out? */
+function settled(e, now) {
+  const role = e.worker ? roleOf(e.worker) : null;
+  const a = role ? avatars[role] : null;
+  switch (e.status) {
+    case "start":                              // out to the car, and stood there
+      return !!a && !a.target && a.mode === "work" && a.arrivedAt
+             && now >= a.arrivedAt + MIN_WORK_MS / speed;
+    case "done":                               // all the way back to the bench
+      return !!a && !a.target;
+    case "result":                             // the stamp has landed
+      return now >= (performing._stampUntil || 0);
+    case "job_start":
+    case "job_end":                            // the car finished driving
+      return !car.target;
+    default:
+      return true;
+  }
+}
+
+function pump(now) {
+  if (SILENT || !playing) return;
+  if (performing) {
+    if (!settled(performing, now)) return;
+    performing = null;
+  }
+  if (!PENDING.length) return;
+  performing = PENDING.shift();
+  performing._stampUntil = now + STAMP_MS;
+  applyToScene(performing);
+  feedRow(performing);
+  cursor = Math.min(LOG.length, cursor + 1);
+  clock = tms(performing);
+  trimFeed(); paintHud(); drawTape(); paintReadout();
+}
+
 /* The scene reads ONE event shape and knows nothing about where it came from
  * (see source.js). Everything below is a function of { worker, action, job,
  * status, result } -- swap the mock feed for a WebSocket and not a line here
@@ -537,22 +589,15 @@ function applyToScene(e) {
 
     case "start": {
       if (!role) break;
-      // only ever one at a time: whoever was working goes back to their bench
-      if (S.active && S.active !== role) {
-        const prev = avatars[S.active];
-        // Do NOT cut short someone who has finished and is waiting out their
-        // dwell. The engine emits a stage's start, its done, and the NEXT
-        // stage's start inside one millisecond, so cancelling here meant the
-        // previous mechanic was recalled before taking a step -- which is why
-        // the three furthest from their bay were never seen to move at all.
-        // The amber glow moves away immediately (setWorkLamp is singular), so
-        // they are simply standing there unlit until they walk back.
-        if (!prev.doneWaiting) sendHome(S.active);   // never finished: supersede
-      }
+      // Nobody needs evicting while playing: the queue does not release this
+      // event until the previous mechanic is home, so the floor is clear.
+      // While playing, the queue guarantees the floor is already clear. This
+      // only fires after a scrub, where the fold can leave somebody out.
+      if (S.active && S.active !== role) sendHome(S.active);
       S.active = role;
       const bay = BAY[role];
       const a = avatars[role];
-      a.arrivedAt = 0; a.doneWaiting = false; a.goHomeAt = 0;
+      a.arrivedAt = 0;
       walkTo(role, bay.x, bay.y, "work");
       setWorkLamp(role);                 // amber lamp, glow and popup, singular
       break;
@@ -576,14 +621,11 @@ function applyToScene(e) {
 
     case "done": {
       if (!role) break;
-      if (quiet()) {                             // folding: no dwell, just snap
-        sendHome(role);
-        if (S.active === role) { S.active = null; setWorkLamp(null); }
-        break;
-      }
-      // Remember that they are finished; the ticker releases them once they
-      // have actually stood at the car for long enough to be seen.
-      avatars[role].doneWaiting = true;
+      // The dwell has already happened -- the queue would not have released
+      // this event otherwise -- so they simply walk back, and nobody else
+      // starts until they have arrived.
+      sendHome(role);
+      if (S.active === role) { S.active = null; setWorkLamp(null); }
       break;
     }
 
@@ -621,18 +663,12 @@ function tick(ticker) {
   AGENTS.forEach((name, i) => {
     const a = avatars[name];
     const wasWalking = !!a.target;
-    moveToward(a, WALK_SPEED, dt);
+    moveToward(a, WALK_SPEED * speed, dt);
     if (wasWalking && !a.target && a.mode === "walk") {
       a.mode = a.then || "idle";
       if (a.mode === "work") a.arrivedAt = now;  // the clock starts HERE
     }
 
-    // Released only once they have been seen at the car for MIN_WORK_MS.
-    if (a.doneWaiting && a.arrivedAt && now >= a.arrivedAt + MIN_WORK_MS) {
-      a.doneWaiting = false; a.arrivedAt = 0;
-      sendHome(name);
-      if (S.active === name) { S.active = null; setWorkLamp(null); paintHud(); }
-    }
 
     // Three animations, all one pixel of vertical bob at different speeds.
     // Cheap, and it is the whole difference between a sprite sitting on the
@@ -649,7 +685,7 @@ function tick(ticker) {
     const b = bubbles[name];
     if (b) { b.x = a.x; b.y = a.y - CHARS[name].tall - 24; }
   });
-  moveToward(car, CAR_SPEED, dt);
+  moveToward(car, CAR_SPEED * speed, dt);
   if (car.exiting && !car.target) { car.visible = false; car.exiting = false; }
 
   for (let i = flying.length - 1; i >= 0; i--) {
@@ -737,8 +773,7 @@ function resetScene() {
     const st = STATIONS[n];
     avatars[n].x = st.x; avatars[n].y = st.y;
     avatars[n].target = null; avatars[n].mode = "idle";
-    avatars[n].goHomeAt = 0; avatars[n].arrivedAt = 0;
-    avatars[n].doneWaiting = false;
+    avatars[n].arrivedAt = 0;
   });
   setWorkLamp(null);
   car.visible = false; car.target = null; car.exiting = false;
@@ -756,6 +791,7 @@ function resetScene() {
  * timestamp advances the lot and you never see the individual moves. */
 function foldToCount(n, clockAt = null) {
   n = Math.max(0, Math.min(LOG.length, n));
+  clearQueue();                      // abandon anything mid-performance
   SILENT = true;
   resetScene();
   for (let i = 0; i < n; i++) applyToScene(LOG[i]);
@@ -1110,12 +1146,16 @@ function openSource(kind, id) {
       return;
     }
     LOG.push(e);
-    if (live) {
-      // Mock events arrive one at a time, so following the tail IS watching
-      // it happen. A finished real run arrives in one burst, so we stay parked
-      // at the start and let the tape drive -- the week-5 rule, unchanged.
-      if (kind === "mock") advanceTo(tms(e));
-      else if (LOG.length === 1) { clock = tms(e); }
+    if (playing) {
+      PENDING.push(e);                  // join the back of the queue
+    } else if (kind === "mock" && LOG.length === 1) {
+      // The mock invents a night as you watch, so it starts itself. A recorded
+      // run stays parked until you press play -- the week-5 rule, unchanged.
+      playing = true; $("play").textContent = "\u275A\u275A";
+      setLive(false);
+      PENDING = LOG.slice(cursor);
+    } else if (LOG.length === 1) {
+      clock = tms(e);
     }
     drawTape(); paintReadout();
   };
@@ -1127,11 +1167,17 @@ function openSource(kind, id) {
 function wireTransport() {
   $("play").onclick = () => {
     if (!LOG.length) return;
-    const [, t1] = runSpan();
-    if (clock >= t1) foldToCount(0);            // replay from the top
+    if (cursor >= LOG.length) foldToCount(0);   // finished: start again
     playing = !playing;
     $("play").textContent = playing ? "❚❚" : "▶";
-    if (playing) setLive(false);
+    if (playing) {
+      setLive(false);
+      clearQueue();
+      PENDING = LOG.slice(cursor);             // perform what has not been seen
+    } else {
+      clearQueue();                            // pause abandons the queue; the
+      // scene stays exactly where it is, and pressing play re-queues from here
+    }
   };
   $("restart").onclick = () => { foldToCount(0); playing = false;
                                  $("play").textContent = "▶"; setLive(false); };
@@ -1141,7 +1187,8 @@ function wireTransport() {
                                setLive(false); foldToCount(cursor + 1); };
   $("golive").onclick = () => {
     setLive(true); playing = false; $("play").textContent = "▶";
-    if (LOG.length) advanceTo(runSpan()[1] + 1);
+    clearQueue();
+    if (LOG.length) foldToCount(LOG.length);   // straight to now
   };
   document.querySelectorAll("[data-speed]").forEach(b => {
     b.onclick = () => {
@@ -1208,20 +1255,17 @@ function wireTransport() {
 
 /* Playback rides the same ticker as the scene, so a paused replay freezes the
  * walk cycles too rather than leaving mechanics sliding around a dead clock. */
+/* Playing means acting the run out, not sweeping a clock through it: the
+ * queue releases one event at a time and each waits for its animation. So the
+ * speed control scales how fast the crew MOVE, which is the only thing that
+ * makes 4x and 16x mean anything once the pace is what you are watching. */
 function tickPlayback(ticker) {
-  if (!playing || !LOG.length) return;
-  const [, t1] = runSpan();
-  advanceTo(clock + ticker.deltaMS * speed);
-
-  if (skipGaps && cursor < LOG.length) {
-    const next = tms(LOG[cursor]);
-    if (next - clock > MAX_GAP_MS) {
-      clock = next - GAP_LANDING_MS;   // land just before it, not on top of it
-      drawTape(); paintReadout();
-    }
+  if (!playing) return;
+  pump(performance.now());
+  if (!PENDING.length && !performing && cursor >= LOG.length) {
+    playing = false; $("play").textContent = "▶";
+    $("status").textContent = "end of run";
   }
-  if (clock >= t1) { playing = false; $("play").textContent = "▶";
-                     $("status").textContent = "end of run"; }
 }
 
 async function boot() {
