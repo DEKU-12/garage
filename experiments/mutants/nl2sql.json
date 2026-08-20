@@ -1,0 +1,20 @@
+[
+ {
+  "mid": "guardrails-L33-or_to_and",
+  "path": "src/t2sql/guardrails.py",
+  "line": 33,
+  "operator": "or_to_and",
+  "before": "    if not (low.startswith(\"select\") or low.startswith(\"with\")):",
+  "after": "    if not (low.startswith(\"select\") and low.startswith(\"with\")):",
+  "fail_to_pass": [
+   "tests/test_guardrails.py::TestIsSelectOnly::test_plain_select_passes",
+   "tests/test_guardrails.py::TestIsSelectOnly::test_select_with_subquery_passes",
+   "tests/test_guardrails.py::TestIsSelectOnly::test_trailing_semicolon_allowed",
+   "tests/test_guardrails.py::TestIsSelectOnly::test_with_cte_passes",
+   "tests/test_guardrails.py::TestValidateAndFix::test_clamps_limit_end_to_end",
+   "tests/test_guardrails.py::TestValidateAndFix::test_strips_fence_and_validates",
+   "tests/test_guardrails.py::TestValidateAndFix::test_valid_select_passes"
+  ],
+  "issue": "The test suite is failing. 7 test(s) that passed on the previous commit now fail:\n  - tests/test_guardrails.py::TestIsSelectOnly::test_plain_select_passes\n  - tests/test_guardrails.py::TestIsSelectOnly::test_select_with_subquery_passes\n  - tests/test_guardrails.py::TestIsSelectOnly::test_trailing_semicolon_allowed\n  - tests/test_guardrails.py::TestIsSelectOnly::test_with_cte_passes\n  - tests/test_guardrails.py::TestValidateAndFix::test_clamps_limit_end_to_end\n  - tests/test_guardrails.py::TestValidateAndFix::test_strips_fence_and_validates\n  - tests/test_guardrails.py::TestValidateAndFix::test_valid_select_passes\n\nTest output:\n\nalueError\n______________ TestValidateAndFix.test_strips_fence_and_validates ______________\n\nself = <tests.test_guardrails.TestValidateAndFix object at 0x7fffd94ba890>\n\n    def test_strips_fence_and_validates(self):\n        sql = \"```sql\\nSELECT id FROM users\\n```\"\n>       result = validate_and_fix(sql, limit=100)\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\ntests/test_guardrails.py:121: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nsql = '```sql\\nSELECT id FROM users\\n```', limit = 100\n\n    def validate_and_fix(sql: str, limit: int = 200) -> str:\n        s = strip_code_fences(sql)\n        if not is_select_only(s):\n>           raise ValueError(\"Guardrails: rejected (must be SELECT/WITH only; no DDL/DML; single statement).\")\nE           ValueError: Guardrails: rejected (must be SELECT/WITH only; no DDL/DML; single statement).\n\nsrc/t2sql/guardrails.py:62: ValueError\n_______________ TestValidateAndFix.test_clamps_limit_end_to_end ________________\n\nself = <tests.test_guardrails.TestValidateAndFix object at 0x7fffd94bbed0>\n\n    def test_clamps_limit_end_to_end(self):\n        sql = \"SELECT id FROM users LIMIT 9999\"\n>       result = validate_and_fix(sql, limit=200)\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\ntests/test_guardrails.py:139: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nsql = 'SELECT id FROM users LIMIT 9999', limit = 200\n\n    def validate_and_fix(sql: str, limit: int = 200) -> str:\n        s = strip_code_fences(sql)\n        if not is_select_only(s):\n>           raise ValueError(\"Guardrails: rejected (must be SELECT/WITH only; no DDL/DML; single statement).\")\nE           ValueError: Guardrails: rejected (must be SELECT/WITH only; no DDL/DML; single statement).\n\nsrc/t2sql/guardrails.py:62: ValueError\n=========================== short test summary info ============================\nFAILED tests/test_guardrails.py::TestIsSelectOnly::test_plain_select_passes\nFAILED tests/test_guardrails.py::TestIsSelectOnly::test_with_cte_passes - Ass...\nFAILED tests/test_guardrails.py::TestIsSelectOnly::test_trailing_semicolon_allowed\nFAILED tests/test_guardrails.py::TestIsSelectOnly::test_select_with_subquery_passes\nFAILED tests/test_guardrails.py::TestValidateAndFix::test_valid_select_passes\nFAILED tests/test_guardrails.py::TestValidateAndFix::test_strips_fence_and_validates\nFAILED tests/test_guardrails.py::TestValidateAndFix::test_clamps_limit_end_to_end\n7 failed, 70 passed in 0.91s\n\n\nFind the cause and fix it. Do not change or delete the tests."
+ }
+]
