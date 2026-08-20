@@ -312,6 +312,11 @@ def build_graph(
                result.log_tail)
         attempt["test_verdict"] = result.verdict
         attempt["test_output"] = result.log_tail[-2000:]
+        # Repo mode's grader proves a fix with a witness test; carry the names
+        # so the human approving the commit is shown the evidence that the
+        # verdict was based on. Empty for the benchmark grader, which has an
+        # answer key and needs no witness.
+        attempt["witness_tests"] = list(getattr(result, "witness_tests", []))
         attempts[-1] = attempt
         log(f"  tests: {result.verdict} ({result.wall_ms / 1000:.1f}s)")
         emit("gate_verdict", "tester", state["task_id"], gate="tests",

@@ -144,6 +144,8 @@ def run_one(task: Task, cfg: RunConfig, run_dir: Path, stub: StubBackend | None,
         "task_id": task.task_id,
         "solved": final.get("status") == "shipped",
         "status": final.get("status", ""),
+        # what proved it, for the approval prompt and the PR body
+        "witness_tests": (final.get("attempts") or [{}])[-1].get("witness_tests", []),
         "attempts": len(final.get("attempts", [])),
         "failure_type": final.get("failure_type", ""),
         "prompt_tokens": final.get("prompt_tokens", 0),

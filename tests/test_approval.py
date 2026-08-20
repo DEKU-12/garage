@@ -107,3 +107,20 @@ def test_diffstat_counts_files_and_lines_not_diff_headers():
     patch = ("diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n+one\n-two\n"
              "diff --git a/b.py b/b.py\n--- a/b.py\n+++ b/b.py\n+three\n")
     assert approval.diffstat(patch) == (2, 2, 1)
+
+
+def test_the_prompt_shows_the_evidence_the_verdict_rests_on():
+    """The first real run printed `witness NONE` on a verdict of `pass` that
+    the grader had reached *because* two witness tests failed before and
+    passed after. Understating the evidence is not a safe failure: a PR body
+    built from it would have said "no witness test -- treat this as a
+    suggestion, not a fix", which was false.
+    """
+    text = approval.describe("commit to a branch", repo="DEKU-12/NL2SQL",
+                             branch="garage/fix-x", base="main", verdict="pass",
+                             patch="diff --git a/x b/x\n+one\n",
+                             witness=["tests/test_guardrails_string_literals.py::"
+                                      "test_select_only_ignores_keywords_inside_string_literals"],
+                             attempts=2)
+    assert "NONE" not in text
+    assert "test_select_only_ignores_keywords_inside_string_literals" in text
