@@ -452,3 +452,53 @@ def test_a_different_commit_does_not_inherit_another_run_s_dependencies(tmp_path
 
     a, b = CachedImage("commit-a"), CachedImage("commit-b")
     assert a.tag != b.tag
+
+
+# ------------------------------------------------------- branch collisions
+
+def _tiny_repo(tmp_path):
+    import subprocess
+    r = tmp_path / "repo"
+    r.mkdir()
+    run = lambda *a: subprocess.run(["git", *a], cwd=r, capture_output=True, check=True)
+    run("init", "-q", "-b", "main")
+    (r / "a.txt").write_text("hello\n")
+    run("add", "-A")
+    run("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "first")
+    return r
+
+
+def test_a_second_run_on_the_same_commit_gets_its_own_branch(tmp_path):
+    """The branch name is derived from repo + commit, so running twice against
+    the same commit produced the same name and `checkout -b` failed.
+
+    Reusing the branch would be worse than failing: it would quietly bury an
+    earlier attempt somebody may not have merged yet.
+    """
+    from engine.repo.ship import branch_exists, commit_patch, unique_branch
+
+    repo = _tiny_repo(tmp_path)
+    name = "garage/fix-thing-abc1234"
+
+    assert unique_branch(repo, name) == name          # nothing there yet
+    (repo / "b.txt").write_text("one\n")
+    commit_patch(repo, name, "main", "first change")
+    assert branch_exists(repo, name)
+
+    second = unique_branch(repo, name)
+    assert second == name + "-2" and not branch_exists(repo, second)
+
+
+def test_a_failed_branch_creation_reports_gits_own_words(tmp_path):
+    """"could not create branch X" could not be told apart from a bad name or
+    a detached HEAD. git already knows which it is."""
+    from engine.errors import WorkspaceError
+    from engine.repo.ship import commit_patch
+
+    repo = _tiny_repo(tmp_path)
+    (repo / "b.txt").write_text("one\n")
+    commit_patch(repo, "garage/taken", "main", "first")
+    (repo / "c.txt").write_text("two\n")
+    with pytest.raises(WorkspaceError) as exc:
+        commit_patch(repo, "garage/taken", "main", "again")
+    assert "already exists" in str(exc.value)

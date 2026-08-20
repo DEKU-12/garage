@@ -606,6 +606,9 @@ def _ship(task, run_dir: Path, verdict: str, row: dict, args, shipping,
             print(f"\nno branch: the patch would not re-apply "
                   f"({applied.stderr[-200:]})")
             return
+        # Resolved against the real repo before asking, so the name in the
+        # prompt is the name that will exist.
+        branch = shipping.unique_branch(tree, branch)
         if not gate("commit to a branch"):
             return
         res = shipping.commit_patch(tree, branch, task.default_branch, title)

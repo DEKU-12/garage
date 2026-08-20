@@ -47,6 +47,28 @@ def branch_name(task_id: str, verdict: str) -> str:
     return f"garage/{kind}-{safe}"[:100]
 
 
+def branch_exists(tree: Path, name: str) -> bool:
+    return _git(["rev-parse", "--verify", "--quiet", f"refs/heads/{name}"],
+                cwd=Path(tree)).returncode == 0
+
+
+def unique_branch(tree: Path, name: str) -> str:
+    """A free branch name, never an existing one.
+
+    The name is derived from repo + commit, so a second run against the same
+    commit produces the same name and `checkout -b` fails. Reusing the branch
+    would be worse than failing: it would quietly bury the earlier attempt,
+    which somebody may not have merged yet. So each run gets its own.
+    """
+    if not branch_exists(tree, name):
+        return name
+    for n in range(2, 100):
+        candidate = f"{name}-{n}"
+        if not branch_exists(tree, candidate):
+            return candidate
+    raise WorkspaceError(f"{name}: 99 branches already exist for this commit")
+
+
 def assert_not_protected(branch: str, default: str) -> None:
     if branch in PROTECTED or branch == default:
         raise WorkspaceError(
@@ -65,8 +87,12 @@ def commit_patch(tree: Path, branch: str, default: str, message: str,
     assert_not_protected(branch, default)
     tree = Path(tree)
 
-    if _git(["checkout", "-b", branch], cwd=tree).returncode != 0:
-        raise WorkspaceError(f"could not create branch {branch}")
+    made = _git(["checkout", "-b", branch], cwd=tree)
+    if made.returncode != 0:
+        # git's own words: "already exists" is a very different problem from a
+        # bad name or a detached HEAD, and the caller could not tell them apart.
+        raise WorkspaceError(
+            f"could not create branch {branch}: {made.stderr.strip()[-200:]}")
     if _git(["add", "-A"], cwd=tree).returncode != 0:
         raise WorkspaceError("git add failed")
 
