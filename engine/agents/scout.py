@@ -186,7 +186,13 @@ def _rendered_cost(path: str, start: int, end: int, why: str, source: str) -> in
 # Neither signal was used: extract_terms turns "engine/events.py:111" into
 # ordinary words and ranks them by rarity across the repo, so the one place
 # the answer was written down competed with every other mention of "events".
-_PATH_IN_TEXT = re.compile(r"([\w./-]+\.py)(?::(\d+))?")
+# Two shapes appear in real pytest output and only one has a colon:
+#   engine/events.py:111: AssertionError          <- pytest's short form
+#   File "engine/events.py", line 111, in emit    <- the traceback
+_PATH_IN_TEXT = re.compile(
+    r'File "([\w./-]+\.py)", line (\d+)'          # traceback form, line first
+    r"|([\w./-]+\.py)(?::(\d+))?"                  # short form
+)
 _TEST_FILE = re.compile(r"(?:^|/)test_([\w]+)\.py")
 
 
@@ -214,7 +220,9 @@ def cited_paths(issue: str, tree: Path) -> list[tuple[str, int | None]]:
         out.append((rel, line))
 
     for m in _PATH_IN_TEXT.finditer(issue):
-        add(m.group(1).lstrip("./"), int(m.group(2)) if m.group(2) else None)
+        rel = m.group(1) or m.group(3)
+        line = m.group(2) or m.group(4)
+        add(rel.lstrip("./"), int(line) if line else None)
 
     # tests/test_config.py -> **/config.py
     for m in _TEST_FILE.finditer(issue):
