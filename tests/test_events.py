@@ -201,3 +201,24 @@ def test_every_agent_node_closes_every_exit():
                     f"agent_activated without any agent_done:\n"
                     + text[max(act, m.start() - 160):m.start() + 40])
     assert not problems, "\n\n".join(problems)
+
+
+def test_outcome_only_ever_means_something_went_wrong():
+    """`outcome` is the UI's signal to colour a row as a failure.
+
+    The scribe used it to report what it had written down -- including
+    `outcome=shipped` -- which painted a successful record red. The key now
+    means one thing only, so nothing else may emit a success through it.
+    """
+    import inspect
+    import re
+
+    from engine import graph
+
+    src = inspect.getsource(graph.build_graph)
+    values = set(re.findall(r'outcome="([a-z_]+)"', src))
+    assert values, "no outcome values found -- did the field get renamed?"
+    good = {"shipped", "accept", "pass", "solved", "ok"}
+    assert not (values & good), (
+        f"these outcome values read as success but the UI treats outcome as a "
+        f"failure signal: {sorted(values & good)}")

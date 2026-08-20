@@ -391,7 +391,11 @@ def build_graph(
         side desk from dusk till dawn without moving.
         """
         emit("agent_activated", "scribe", state["task_id"])
-        emit("agent_done", "scribe", state["task_id"], outcome=outcome,
+        # `recorded`, not `outcome`: everywhere else in this file `outcome`
+        # means WHY a stage went wrong, and the UI colours it as a failure.
+        # The scribe writing down "shipped" is the opposite of a failure, and
+        # reusing the key painted a successful record red.
+        emit("agent_done", "scribe", state["task_id"], recorded=outcome,
              attempts=len(state.get("attempts", [])),
              usd=round(state.get("spend_usd", 0.0), 4))
 
