@@ -536,8 +536,14 @@ function applyToScene(e) {
       // only ever one at a time: whoever was working goes back to their bench
       if (S.active && S.active !== role) {
         const prev = avatars[S.active];
-        prev.doneWaiting = false; prev.arrivedAt = 0;   // cancel pending release
-        sendHome(S.active);
+        // Do NOT cut short someone who has finished and is waiting out their
+        // dwell. The engine emits a stage's start, its done, and the NEXT
+        // stage's start inside one millisecond, so cancelling here meant the
+        // previous mechanic was recalled before taking a step -- which is why
+        // the three furthest from their bay were never seen to move at all.
+        // The amber glow moves away immediately (setWorkLamp is singular), so
+        // they are simply standing there unlit until they walk back.
+        if (!prev.doneWaiting) sendHome(S.active);   // never finished: supersede
       }
       S.active = role;
       const bay = BAY[role];
