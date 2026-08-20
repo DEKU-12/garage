@@ -370,12 +370,26 @@ def build_graph(
             )
         return update
 
+    def record(state: TaskState, outcome: str) -> None:
+        """The scribe closing the book on a task.
+
+        Real work, at a real moment: this is where the task's outcome becomes
+        the row that results.csv and every reported number are built from. It
+        was happening all along, silently, which is why the scribe sat at his
+        side desk from dusk till dawn without moving.
+        """
+        emit("agent_activated", "scribe", state["task_id"])
+        emit("agent_done", "scribe", state["task_id"], outcome=outcome,
+             attempts=len(state.get("attempts", [])),
+             usd=round(state.get("spend_usd", 0.0), 4))
+
     def ship_node(state: TaskState) -> dict[str, Any]:
         attempt = last_attempt(state)
         if attempt and attempt.get("test_verdict") == "pass":
             emit("shipped", "orchestrator", state["task_id"],
                  attempts=len(state.get("attempts", [])),
                  usd=round(state.get("spend_usd", 0.0), 4))
+            record(state, "shipped")
             return {"status": "shipped", "failure_type": ""}
         return {"status": state.get("status") or "failed_tests",
                 "failure_type": state.get("failure_type") or "failed_tests"}
@@ -394,16 +408,34 @@ def build_graph(
             failure = "unverified"
         emit("task_failed", "orchestrator", state["task_id"], reason=failure,
              attempts=len(attempts), usd=round(state.get("spend_usd", 0.0), 4))
+        record(state, failure)
         return {"status": failure, "failure_type": failure}
 
     # ------------------------------------------------------------- routing
 
+    def route(state: TaskState, where: str, choice: str) -> str:
+        """Say out loud what the orchestrator just decided.
+
+        Routing is the orchestrator's entire job and it always did it -- it
+        simply never emitted anything, so a garage driven purely by the log
+        showed the foreman standing at his whiteboard all night while work
+        happened around him. The decision is real; only the record of it was
+        missing.
+
+        Activation and completion are adjacent because the work IS
+        instantaneous: it is a choice, not a task.
+        """
+        emit("agent_activated", "orchestrator", state["task_id"], at=where)
+        emit("agent_done", "orchestrator", state["task_id"], at=where,
+             decided=choice)
+        return choice
+
     def after_builder(state: TaskState) -> str:
         """A dead attempt never reaches Docker; it goes straight to routing."""
         if state.get("status") in {"crashed", "budget_exceeded"}:
-            return "fail"
+            return route(state, "after_builder", "fail")
         attempt = last_attempt(state)
-        return "tester" if attempt and attempt.get("patch_applied") else "recheck"
+        return route(state, "after_builder", "tester") if attempt and attempt.get("patch_applied") else "recheck"
 
     # Retries TAKEN, not failures seen. The first failure has not been retried
     # yet, so comparing raw failure counts against the cap loses one attempt at
@@ -427,7 +459,7 @@ def build_graph(
 
     def after_tester(state: TaskState) -> str:
         if state.get("status") == "crashed":
-            return "fail"
+            return route(state, "after_tester", "fail")
         attempt = last_attempt(state)
         assert attempt is not None
         # "unverified" is not a pass. It means no regressions but nothing
@@ -438,31 +470,31 @@ def build_graph(
             if correctness_retries_taken(state) < cfg.max_correctness_retries:
                 log(f"  retry {correctness_retries_taken(state) + 1}"
                     f"/{cfg.max_correctness_retries}")
-                return "builder"
-            return "fail"
-        return "reviewer" if cfg.reviewer_gate else "ship"
+                return route(state, "after_tester", "builder")
+            return route(state, "after_tester", "fail")
+        return route(state, "after_tester", "reviewer") if cfg.reviewer_gate else "ship"
 
     def after_tester_gate_off(state: TaskState) -> str:
         """One shot: a passing patch may still be reviewed, a failing one ends."""
         if state.get("status") == "crashed":
-            return "fail"
+            return route(state, "after_tester_gate_off", "fail")
         attempt = last_attempt(state)
         assert attempt is not None
         if not attempt.get("patch_applied") or attempt.get("test_verdict") != "pass":
-            return "fail"
-        return "reviewer"
+            return route(state, "after_tester_gate_off", "fail")
+        return route(state, "after_tester_gate_off", "reviewer")
 
     def after_reviewer(state: TaskState) -> str:
         attempt = last_attempt(state)
         assert attempt is not None
         if attempt.get("review_verdict") == "reject":
             if simplicity_retries_taken(state) < cfg.max_simplicity_retries:
-                return "builder"
+                return route(state, "after_reviewer", "builder")
             # ADR-7: simplicity never blocks a correct patch at the cap. The
             # verdict is recorded either way -- that record is what E3 measures.
             log("  simplicity cap reached -- shipping the correct patch anyway")
-            return "ship"
-        return "ship"
+            return route(state, "after_reviewer", "ship")
+        return route(state, "after_reviewer", "ship")
 
     # --------------------------------------------------------------- wiring
 

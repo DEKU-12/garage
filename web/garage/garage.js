@@ -31,6 +31,14 @@ const CAR_SPEED = 210;                        // ~510px; replay fires events far
                                               // that cannot finish reads as nobody
                                               // ever leaving the couch.
 const ARC_MS = 400, STAMP_MS = 600, MICRO_MS = 120;
+
+/* A mechanic stays at the car for at least this long, even when the backend
+ * says they finished in the same millisecond they started -- which the
+ * orchestrator genuinely does, because deciding who goes next is instant.
+ * Without it Dholu darts at the car and turns around mid-step, nine times a
+ * run. Same principle as the test gauge's 600ms floor (DESIGN §4.4):
+ * legibility beats literal timing, as long as nothing is invented. */
+const MIN_WORK_MS = 700;
 const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /* Scrubbing means rebuilding the scene at an arbitrary point by folding the
@@ -505,9 +513,14 @@ function applyToScene(e) {
     case "start": {
       if (!role) break;
       // only ever one at a time: whoever was working goes back to their bench
-      if (S.active && S.active !== role) sendHome(S.active);
+      if (S.active && S.active !== role) {
+        avatars[S.active].goHomeAt = 0;          // cancel any pending release
+        sendHome(S.active);
+      }
       S.active = role;
       const bay = BAY[role];
+      avatars[role].busySince = performance.now();
+      avatars[role].goHomeAt = 0;
       walkTo(role, bay.x, bay.y, "work");
       setWorkLamp(role);                 // amber lamp, glow and popup, singular
       break;
@@ -529,11 +542,18 @@ function applyToScene(e) {
       break;
     }
 
-    case "done":
+    case "done": {
       if (!role) break;
-      sendHome(role);
-      if (S.active === role) { S.active = null; setWorkLamp(null); }
+      if (quiet()) {                             // folding: no dwell, just snap
+        sendHome(role);
+        if (S.active === role) { S.active = null; setWorkLamp(null); }
+        break;
+      }
+      // Hold the bay long enough to be seen, then the ticker sends them back.
+      const a = avatars[role];
+      a.goHomeAt = Math.max(performance.now(), (a.busySince || 0) + MIN_WORK_MS);
       break;
+    }
 
     case "job_end":
       if (e.action === "ship") {
@@ -570,6 +590,12 @@ function tick(ticker) {
     const a = avatars[name];
     moveToward(a, WALK_SPEED, dt);
     if (!a.target && a.mode === "walk") a.mode = a.then || "idle";
+
+    if (a.goHomeAt && now >= a.goHomeAt) {       // the dwell is up
+      a.goHomeAt = 0;
+      sendHome(name);
+      if (S.active === name) { S.active = null; setWorkLamp(null); paintHud(); }
+    }
 
     // Three animations, all one pixel of vertical bob at different speeds.
     // Cheap, and it is the whole difference between a sprite sitting on the
@@ -674,6 +700,7 @@ function resetScene() {
     const st = STATIONS[n];
     avatars[n].x = st.x; avatars[n].y = st.y;
     avatars[n].target = null; avatars[n].mode = "idle";
+    avatars[n].goHomeAt = 0; avatars[n].busySince = 0;
   });
   setWorkLamp(null);
   car.visible = false; car.target = null; car.exiting = false;

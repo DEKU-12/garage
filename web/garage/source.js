@@ -119,6 +119,9 @@ export class MockSource {
     const at = (ms, e) => { t += ms; seq.push([t, e]); };
 
     at(beat * 0.5, ev(null, "job_start", { job, action: null }));
+    // The foreman decides who goes next before every stage -- that is what the
+    // engine's routing emits, so the mock does it too rather than showing a
+    // tidier garage than the real one.
     for (const w of ["dholu", "bheem", "kalia"]) {
       at(beat, ev(w, "start", { job }));
       at(beat * 2, ev(w, "done", { job }));

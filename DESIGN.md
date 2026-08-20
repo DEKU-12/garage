@@ -208,7 +208,7 @@ The scene is a pure view of the reducer's `SceneState` (TAD §5.2). Full mapping
 | Event | Scene response |
 |---|---|
 | `task_started` | Issue title chalks onto the whiteboard; lights dim 10% then restore (a "new job" beat) |
-| `agent_activated` | Avatar walks **workstation→car bay**; station lamp turns `--work`; popup appears; previous `--work` glow extinguishes (§2.2 singular rule) |
+| `agent_activated` | Avatar walks **workstation→car bay**; station lamp turns `--work`; popup appears; previous `--work` glow extinguishes (§2.2 singular rule). A mechanic holds the bay for **at least 700ms** — the orchestrator finishes deciding in the same millisecond it starts, and without a floor it darts at the car and turns around mid-step. Same reasoning as the gauge's 600ms below: legibility beats literal timing, but nothing is invented |
 | `agent_done` | Avatar walks **car bay→their own workstation** and returns to idle; popup clears |
 | `context_pack_ready` | Scout tosses a paper bundle to the build desk (handoff arc) |
 | `patch_produced` | Builder's monitors flash; paper bundle arcs to test bench |
