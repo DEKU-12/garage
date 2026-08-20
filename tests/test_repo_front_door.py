@@ -502,3 +502,48 @@ def test_a_failed_branch_creation_reports_gits_own_words(tmp_path):
     with pytest.raises(WorkspaceError) as exc:
         commit_patch(repo, "garage/taken", "main", "again")
     assert "already exists" in str(exc.value)
+
+
+# --------------------------------------------- the container the repo needs
+
+def test_the_interpreter_follows_requires_python(tmp_path):
+    """A repo pinning ==3.12.* cannot be installed by 3.11: pip refuses.
+
+    Combined with a tolerant `|| true` that produced a container with NONE of
+    the project's dependencies, and a suite failing with ModuleNotFoundError
+    -- which reads as a broken repo rather than a wrong image. It cost two
+    wrong diagnoses before anyone looked at the actual error.
+    """
+    from engine.repo.detect import python_image
+
+    _touch(tmp_path, "pyproject.toml", '[project]\nrequires-python = "==3.12.*"\n')
+    assert python_image(tmp_path) == "python:3.12-slim"
+
+    _touch(tmp_path, "pyproject.toml", '[project]\nrequires-python = ">=3.10"\n')
+    assert python_image(tmp_path) == "python:3.10-slim"
+
+
+def test_an_unparseable_or_absent_pin_falls_back(tmp_path):
+    """Guessing an interpreter from a constraint we cannot read is worse than
+    using the default and letting the suite say so."""
+    from engine.repo.detect import python_image
+
+    assert python_image(tmp_path) == "python:3.11-slim"          # no pyproject
+    _touch(tmp_path, "pyproject.toml", "[project]\nname='x'\n")
+    assert python_image(tmp_path) == "python:3.11-slim"          # no pin
+    _touch(tmp_path, "pyproject.toml", '[project]\nrequires-python = ">=2.7"\n')
+    assert python_image(tmp_path) == "python:3.11-slim"          # out of range
+
+
+def test_test_only_dependencies_are_installed(tmp_path):
+    """pip install -e . installs neither PEP 735 groups nor unnamed extras."""
+    from engine.repo.detect import test_requirements
+
+    _touch(tmp_path, "pyproject.toml",
+           '[project]\nname="x"\n'
+           '[project.optional-dependencies]\ntest = ["responses"]\n'
+           '[dependency-groups]\ndev = ["httpx>=0.28.1", "pytest"]\n'
+           'lint = ["ruff"]\n')
+    got = test_requirements(tmp_path)
+    assert "httpx>=0.28.1" in got and "responses" in got
+    assert "ruff" not in got, "lint deps are not test deps"

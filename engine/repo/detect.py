@@ -25,6 +25,7 @@ Emits: nothing.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -73,6 +74,35 @@ COMPOSE_FILES = ("docker-compose.yml", "docker-compose.yaml",
 # named explicitly. A container that skips them looks like a repo whose tests
 # are broken -- six collection errors on this project, from one missing httpx.
 TEST_GROUPS = ("dev", "test", "tests", "testing", "dev-dependencies")
+
+
+def python_image(tree: Path, default: str = "python:3.11-slim") -> str:
+    """The interpreter the repo says it needs.
+
+    A repo pinning `requires-python = "==3.12.*"` cannot be installed by a
+    3.11 interpreter: pip refuses outright. Combined with a tolerant
+    `|| true`, that silently produced a container with NONE of the project's
+    dependencies -- and a suite failing with ModuleNotFoundError, which reads
+    as a broken repo rather than a wrong image.
+
+    Only the interpreter is chosen here, never the version constraint's full
+    semantics: the first 3.x mentioned wins, and anything unparseable falls
+    back to the default rather than guessing.
+    """
+    pyproject = Path(tree) / "pyproject.toml"
+    if not pyproject.is_file():
+        return default
+    try:
+        import tomllib
+        spec = ((tomllib.loads(pyproject.read_text(encoding="utf-8"))
+                 .get("project") or {}).get("requires-python") or "")
+    except (OSError, ValueError, ImportError):
+        return default
+    m = re.search(r"3\.(\d+)", spec)
+    if not m:
+        return default
+    minor = int(m.group(1))
+    return f"python:3.{minor}-slim" if 8 <= minor <= 13 else default
 
 
 def test_requirements(tree: Path) -> list[str]:
@@ -145,7 +175,7 @@ def detect_suite(tree: Path) -> Suite | None:
         setup.append(["python", "-m", "pip", "install", "--quiet", "pytest"])
         return Suite(
             kind="pytest",
-            image="python:3.11-slim",
+            image=python_image(tree),
             setup=setup,
             command=["python", "-m", "pytest", "-q", "--no-header", "-p", "no:cacheprovider"],
             per_test=True,
