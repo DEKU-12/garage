@@ -43,3 +43,35 @@ def test_the_output_ceiling_leaves_room_for_thinking_plus_a_diff() -> None:
 
 def test_scout_gets_the_context_budget_the_prd_specifies() -> None:
     assert RunConfig(run_id="x", task_ids=[]).context_token_budget == 6_000
+
+
+def test_the_mutant_budget_is_read_from_the_ledger_not_the_result_rows(tmp_path):
+    """--max-usd must be able to bind.
+
+    run-mutants summed `spend_usd` out of result rows, and result_row has no
+    such column -- so the total was 0.00 forever, the run reported "$0.00"
+    after spending $1.25, and the budget guard could not fire at any price.
+    A runaway guard that cannot bind is worse than none: it is believed.
+    """
+    import csv
+    import inspect
+
+    from engine import cli
+    from engine.batch import run_spend_usd
+
+    src = inspect.getsource(cli.cmd_run_mutants)
+    assert "run_spend_usd" in src
+    assert 'r.get("spend_usd")' not in src, "back to counting a column that is not there"
+
+    # and the columns really do not carry it
+    assert "spend_usd" not in cli.RESULT_FIELDS
+
+    d = tmp_path / "run"
+    d.mkdir()
+    with (d / "ledger.csv").open("w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["task_id", "attempt", "role", "model", "prompt_tokens",
+                    "completion_tokens", "usd", "priced", "latency_ms"])
+        w.writerow(["t", "1", "builder", "m", "10", "10", "0.75", "True", "1"])
+        w.writerow(["t", "2", "builder", "m", "10", "10", "0.60", "True", "1"])
+    assert abs(run_spend_usd([d]) - 1.35) < 1e-9

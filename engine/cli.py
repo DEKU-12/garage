@@ -719,6 +719,7 @@ def cmd_run_mutants(args: argparse.Namespace) -> int:
     """
     import hashlib
 
+    from engine.batch import run_spend_usd
     from engine.graph import WORKSPACES
     from engine.eval.mutant_bench import load, mutant_grader, scout_found_it
     from engine.eval.repo_grader import CachedImage
@@ -782,7 +783,12 @@ def cmd_run_mutants(args: argparse.Namespace) -> int:
                 print(f"  WORKSPACE FAILURE: {exc}")
                 continue
             rows.append(result_row(row))
-            spent = sum(float(r.get("spend_usd") or 0) for r in rows)
+            # From the ledger on disk, never a counter built from result rows:
+            # result_row has no spend column, so summing it gave 0.00 forever
+            # and --max-usd could not bind at any price. batch.py already had
+            # this right (run_spend_usd), and this reuses it rather than
+            # keeping a second, wronger, way to count money.
+            spent = run_spend_usd([run_dir])
             extra.append({
                 "mid": mt.mid, "path": mt.path, "line": mt.line,
                 "operator": mt.operator, "broke": len(mt.fail_to_pass),
@@ -805,6 +811,7 @@ def cmd_run_mutants(args: argparse.Namespace) -> int:
             w.writerows(extra)
 
     solved = sum(1 for e in extra if e["solved"])
+    spent = run_spend_usd([run_dir])
     print("\n" + "=" * 68)
     print(f"{solved}/{len(extra)} mutants repaired"
           f"   ${spent:.2f}   run={run_id}")
