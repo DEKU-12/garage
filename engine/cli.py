@@ -666,7 +666,9 @@ def cmd_mutants(args: argparse.Namespace) -> int:
         with attempt_worktree(task.repo, task.base_commit, "mutgen", 1,
                               WORKSPACES) as tree:
             print("\nbaseline: the suite must be green before anything is broken")
+            baseline_started = time.monotonic()
             base = run_suite(tree, task.suite, cache)
+            suite_seconds = time.monotonic() - baseline_started
             print(f"  {len(base.failures)} failing, exit {base.exit_code}, "
                   f"{time.monotonic() - started:.0f}s")
             if not base.reported:
@@ -690,7 +692,10 @@ def cmd_mutants(args: argparse.Namespace) -> int:
             # default 1800s was tuned for a cold install; against a suite that
             # takes 14 seconds it means an infinite-loop mutant holds Docker
             # for half an hour instead of a minute.
-            budget = max(120, int((time.monotonic() - started) * 4))
+            # 4x the SUITE's own runtime -- not 4x elapsed-since-start, which
+            # folds in the ~90s image build and inflated the budget to ~400s.
+            # Every hanging mutant then cost six minutes instead of one.
+            budget = max(60, int(suite_seconds * 4))
             print(f"\ntimeout per mutant: {budget}s "
                   f"(a hanging mutant is discarded, not fatal)")
 

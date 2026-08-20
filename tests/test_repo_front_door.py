@@ -547,3 +547,46 @@ def test_test_only_dependencies_are_installed(tmp_path):
     got = test_requirements(tmp_path)
     assert "httpx>=0.28.1" in got and "responses" in got
     assert "ruff" not in got, "lint deps are not test deps"
+
+
+def test_a_timed_out_container_is_force_removed(tmp_path):
+    """A timeout kills the docker CLIENT, not the container.
+
+    `--rm` cleans up on normal exit only, so a hung suite kept running and
+    kept burning CPU. During one generation run those orphans accumulated
+    until every later candidate competed with them and the run crawled from
+    39 seconds per mutant to 465.
+    """
+    import subprocess
+
+    from engine.errors import GradingInfraError
+    from engine.eval.repo_grader import docker_runner
+
+    calls = []
+
+    def timing_out(argv, **kw):
+        calls.append(argv)
+        if argv[1] == "run":
+            raise subprocess.TimeoutExpired(argv, kw.get("timeout", 1))
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    with pytest.raises(GradingInfraError):
+        docker_runner("python:3.12-slim", tmp_path, [["pytest"]], exec_=timing_out)
+
+    removed = [c for c in calls if c[1:3] == ["rm", "-f"]]
+    assert removed, "the container was left running after the timeout"
+    named = [c for c in calls if c[1] == "run" and "--name" in c]
+    assert named, "cannot force-remove a container that was never named"
+
+
+def test_containers_run_on_the_native_platform(tmp_path):
+    """Forcing --platform linux/amd64 ran everything under Rosetta on Apple
+    Silicon. That flag exists for SWE-bench's x86-only images, which are
+    graded by a different path entirely; these are ordinary python:3.x
+    images with native builds."""
+    from engine.eval.repo_grader import docker_runner
+
+    ex = _FakeExec()
+    docker_runner("python:3.12-slim", tmp_path, [["pytest"]], exec_=ex)
+    for call in ex.runs():
+        assert "--platform" not in call

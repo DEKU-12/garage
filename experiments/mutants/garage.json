@@ -1,0 +1,466 @@
+[
+ {
+  "mid": "ledger-L84-drop_not",
+  "path": "engine/accounting/ledger.py",
+  "line": 84,
+  "operator": "drop_not",
+  "before": "    if not Path(path).is_file():",
+  "after": "    if Path(path).is_file():",
+  "fail_to_pass": [
+   "tests/test_batch.py::test_run_spend_is_zero_before_anything_runs",
+   "tests/test_batch.py::test_run_spend_sums_every_arm_from_disk",
+   "tests/test_config.py::test_the_mutant_budget_is_read_from_the_ledger_not_the_result_rows",
+   "tests/test_report.py::test_a_stub_run_produces_no_table_at_all",
+   "tests/test_report.py::test_avg_attempts_counts_only_solved_tasks",
+   "tests/test_report.py::test_counts_and_rate",
+   "tests/test_report.py::test_m1_refuses_when_the_arms_ran_different_task_counts",
+   "tests/test_report.py::test_m1_states_the_headline_with_counts_beside_percentages",
+   "tests/test_report.py::test_no_dollar_figure_when_a_call_was_unpriced",
+   "tests/test_report.py::test_render_shows_counts_not_just_percentages",
+   "tests/test_report.py::test_usd_per_solved_is_total_spend_over_solved_count"
+  ],
+  "issue": "The test suite is failing. 11 test(s) that passed on the previous commit now fail:\n  - tests/test_batch.py::test_run_spend_is_zero_before_anything_runs\n  - tests/test_batch.py::test_run_spend_sums_every_arm_from_disk\n  - tests/test_config.py::test_the_mutant_budget_is_read_from_the_ledger_not_the_result_rows\n  - tests/test_report.py::test_a_stub_run_produces_no_table_at_all\n  - tests/test_report.py::test_avg_attempts_counts_only_solved_tasks\n  - tests/test_report.py::test_counts_and_rate\n  - tests/test_report.py::test_m1_refuses_when_the_arms_ran_different_task_counts\n  - tests/test_report.py::test_m1_states_the_headline_with_counts_beside_percentages\n  - tests/test_report.py::test_no_dollar_figure_when_a_call_was_unpriced\n  - tests/test_report.py::test_render_shows_counts_not_just_percentages\n  - tests/test_report.py::test_usd_per_solved_is_total_spend_over_solved_count\n\nTest output:\n\n(\"a\", True, 1), _row(\"b\", False, 4, \"failed_tests\")])\n>       out = render([summarize(run)])\n                      ^^^^^^^^^^^^^^\n\ntests/test_report.py:140: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \nengine/report/aggregate.py:91: in summarize\n    ledger = read_ledger(run_dir / \"ledger.csv\")\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nengine/accounting/ledger.py:86: in read\n    with Path(path).open(newline=\"\", encoding=\"utf-8\") as handle:\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = PosixPath('/tmp/pytest-of-root/pytest-0/test_render_shows_counts_not_j0/r/ledger.csv')\nmode = 'r', buffering = -1, encoding = 'utf-8', errors = None, newline = ''\n\n    def open(self, mode='r', buffering=-1, encoding=None,\n             errors=None, newline=None):\n        \"\"\"\n        Open the file pointed to by this path and return a file object, as\n        the built-in open() function does.\n        \"\"\"\n        if \"b\" not in mode:\n            encoding = io.text_encoding(encoding)\n>       return io.open(self, mode, buffering, encoding, errors, newline)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE       FileNotFoundError: [Errno 2] No such file or directory: '/tmp/pytest-of-root/pytest-0/test_render_shows_counts_not_j0/r/ledger.csv'\n\n/usr/local/lib/python3.12/pathlib.py:1013: FileNotFoundError\n=========================== short test summary info ============================\nFAILED tests/test_batch.py::test_run_spend_sums_every_arm_from_disk - assert ...\nFAILED tests/test_batch.py::test_run_spend_is_zero_before_anything_runs - Fil...\nFAILED tests/test_config.py::test_the_mutant_budget_is_read_from_the_ledger_not_the_result_rows\nFAILED tests/test_report.py::test_counts_and_rate - FileNotFoundError: [Errno...\nFAILED tests/test_report.py::test_avg_attempts_counts_only_solved_tasks - Fil...\nFAILED tests/test_report.py::test_usd_per_solved_is_total_spend_over_solved_count\nFAILED tests/test_report.py::test_no_dollar_figure_when_a_call_was_unpriced\nFAILED tests/test_report.py::test_a_stub_run_produces_no_table_at_all - FileN...\nFAILED tests/test_report.py::test_m1_refuses_when_the_arms_ran_different_task_counts\nFAILED tests/test_report.py::test_m1_states_the_headline_with_counts_beside_percentages\nFAILED tests/test_report.py::test_render_shows_counts_not_just_percentages - ...\n11 failed, 204 passed, 19 skipped in 15.04s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "16caa45b4aafe6093b5d571cb6b4f054b730e596"
+ },
+ {
+  "mid": "base-L142-drop_not",
+  "path": "engine/agents/base.py",
+  "line": 142,
+  "operator": "drop_not",
+  "before": "    if not key:",
+  "after": "    if key:",
+  "fail_to_pass": [
+   "tests/test_agents.py::test_only_one_retry_layer_exists"
+  ],
+  "issue": "The test suite is failing. 1 test(s) that passed on the previous commit now fail:\n  - tests/test_agents.py::test_only_one_retry_layer_exists\n\nTest output:\n\n................F....................................................... [ 30%]\n........................................................................ [ 61%]\n.............................................................sssssssssss [ 92%]\ns..........sssssss                                                       [100%]\n=================================== FAILURES ===================================\n_______________________ test_only_one_retry_layer_exists _______________________\n\n    def test_only_one_retry_layer_exists() -> None:\n        \"\"\"Two stacked retry policies multiply billed generations.\n    \n        call_model already retries; the SDK retrying underneath makes the ledger a\n        fiction -- it records one call while the bill counts several.\n        \"\"\"\n        import os\n    \n        from engine.agents.base import _anthropic_client, _client\n    \n        os.environ.setdefault(\"ANTHROPIC_API_KEY\", \"test\")\n        os.environ.setdefault(\"GROQ_API_KEY\", \"test\")\n        assert _anthropic_client().max_retries == 0\n>       assert _client().max_retries == 0\n               ^^^^^^^^^\n\ntests/test_agents.py:192: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\n    def _client() -> openai.OpenAI:\n        \"\"\"Groq through its OpenAI-compatible endpoint.\"\"\"\n        key = os.environ.get(\"GROQ_API_KEY\")\n        if key:\n>           raise ModelCallError(\n                \"GROQ_API_KEY is not set. Put it in .env, or run with --model stub \"\n                \"to exercise the pipeline offline.\"\n            )\nE           engine.errors.ModelCallError: GROQ_API_KEY is not set. Put it in .env, or run with --model stub to exercise the pipeline offline.\n\nengine/agents/base.py:143: ModelCallError\n=========================== short test summary info ============================\nFAILED tests/test_agents.py::test_only_one_retry_layer_exists - engine.errors...\n1 failed, 214 passed, 19 skipped in 14.25s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "63c6d3852a73c08f5e53e8c0b2e7a0faa455f0c2"
+ },
+ {
+  "mid": "reviewer-L47-or_to_and",
+  "path": "engine/agents/reviewer.py",
+  "line": 47,
+  "operator": "or_to_and",
+  "before": "    stripped = (text or \"\").strip()",
+  "after": "    stripped = (text and \"\").strip()",
+  "fail_to_pass": [
+   "tests/test_graph.py::test_a_correct_patch_ships_even_when_the_reviewer_keeps_rejecting",
+   "tests/test_graph.py::test_rejection_rebuilds_once"
+  ],
+  "issue": "The test suite is failing. 2 test(s) that passed on the previous commit now fail:\n  - tests/test_graph.py::test_a_correct_patch_ships_even_when_the_reviewer_keeps_rejecting\n  - tests/test_graph.py::test_rejection_rebuilds_once\n\nTest output:\n\n........................................................................ [ 30%]\n.FF..................................................................... [ 61%]\n.............................................................sssssssssss [ 92%]\ns..........sssssss                                                       [100%]\n=================================== FAILURES ===================================\n_________________________ test_rejection_rebuilds_once _________________________\n\nharness = (<function harness.<locals>.make at 0x7fffcece1300>, PosixPath('/tmp/pytest-of-root/pytest-0/test_rejection_rebuilds_once0'))\n\n    def test_rejection_rebuilds_once(harness) -> None:\n        make, run_dir = harness\n        cfg, _ = make([\"pass\"])\n        stub = StubBackend(scripts={\"builder\": builder_script(GOLD),\n                                    \"reviewer\": reviewer_script(before=[REJECT_RUNG_3])})\n        final = _run(cfg, stub, run_dir)\n>       assert len(final[\"attempts\"]) == 2\nE       assert 1 == 2\nE        +  where 1 = len([{'n': 1, 'patch': \"diff --git a/hello.py b/hello.py\\nindex 0d0ca34..abf5389 100644\\n--- a/hello.py\\n+++ b/hello.py\\n@...,2 +1,2 @@\\n def greet():\\n-    return 'hi'\\n+    return 'hello'\\n\", 'patch_applied': True, 'apply_mode': '3way', ...}])\n\ntests/test_graph.py:173: AssertionError\n______ test_a_correct_patch_ships_even_when_the_reviewer_keeps_rejecting _______\n\nharness = (<function harness.<locals>.make at 0x7fffcebf02c0>, PosixPath('/tmp/pytest-of-root/pytest-0/test_a_correct_patch_ships_eve0'))\n\n    def test_a_correct_patch_ships_even_when_the_reviewer_keeps_rejecting(harness) -> None:\n        \"\"\"ADR-7: simplicity never discards a patch the tests approved.\"\"\"\n        make, run_dir = harness\n        cfg, _ = make([\"pass\"])\n        stub = StubBackend(scripts={\"builder\": builder_script(GOLD),\n                                    \"reviewer\": [REJECT_RUNG_3]})\n        final = _run(cfg, stub, run_dir)\n        assert final[\"status\"] == \"shipped\"\n>       assert final[\"attempts\"][-1][\"review_verdict\"] == \"reject\"\nE       AssertionError: assert 'accept' == 'reject'\nE         \nE         - reject\nE         + accept\n\ntests/test_graph.py:186: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_graph.py::test_rejection_rebuilds_once - assert 1 == 2\nFAILED tests/test_graph.py::test_a_correct_patch_ships_even_when_the_reviewer_keeps_rejecting\n2 failed, 213 passed, 19 skipped in 13.84s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "f78ad781d1fbcffa8df5dc51592a41072b0ba8b4"
+ },
+ {
+  "mid": "stub-L105-or_to_and",
+  "path": "engine/agents/stub.py",
+  "line": 105,
+  "operator": "or_to_and",
+  "before": "    return [*(before or []), ACCEPT]",
+  "after": "    return [*(before and []), ACCEPT]",
+  "fail_to_pass": [
+   "tests/test_graph.py::test_a_bare_hunk_header_is_repaired_and_still_ships",
+   "tests/test_graph.py::test_a_patch_that_never_applies_is_its_own_failure_type",
+   "tests/test_graph.py::test_an_unverified_patch_never_ships",
+   "tests/test_graph.py::test_apply_failure_feeds_gits_words_back_to_the_builder",
+   "tests/test_graph.py::test_clean_solve_ships",
+   "tests/test_graph.py::test_correctness_cap_means_one_run_plus_three_retries",
+   "tests/test_graph.py::test_dollar_cap_stops_a_task_like_the_token_cap",
+   "tests/test_graph.py::test_failing_tests_send_the_work_back",
+   "tests/test_graph.py::test_gate_off_does_not_review_a_patch_the_tests_rejected",
+   "tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed",
+   "tests/test_graph.py::test_quota_exhaustion_is_not_recorded_as_a_model_failure",
+   "tests/test_graph.py::test_rejection_rebuilds_once",
+   "tests/test_graph.py::test_repair_can_be_turned_off_and_then_the_bare_hunk_fails",
+   "tests/test_graph.py::test_repo_grader_replaces_the_benchmark_one_entirely",
+   "tests/test_graph.py::test_spend_is_tracked_in_state_from_the_ledger",
+   "tests/test_graph.py::test_tester_gate_off_gets_exactly_one_shot",
+   "tests/test_graph.py::test_token_cap_ends_the_task_cleanly_not_as_a_crash",
+   "tests/test_graph.py::test_unverified_is_retried_like_a_failure"
+  ],
+  "issue": "The test suite is failing. 18 test(s) that passed on the previous commit now fail:\n  - tests/test_graph.py::test_a_bare_hunk_header_is_repaired_and_still_ships\n  - tests/test_graph.py::test_a_patch_that_never_applies_is_its_own_failure_type\n  - tests/test_graph.py::test_an_unverified_patch_never_ships\n  - tests/test_graph.py::test_apply_failure_feeds_gits_words_back_to_the_builder\n  - tests/test_graph.py::test_clean_solve_ships\n  - tests/test_graph.py::test_correctness_cap_means_one_run_plus_three_retries\n  - tests/test_graph.py::test_dollar_cap_stops_a_task_like_the_token_cap\n  - tests/test_graph.py::test_failing_tests_send_the_work_back\n  - tests/test_graph.py::test_gate_off_does_not_review_a_patch_the_tests_rejected\n  - tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed\n  - tests/test_graph.py::test_quota_exhaustion_is_not_recorded_as_a_model_failure\n  - tests/test_graph.py::test_rejection_rebuilds_once\n\nTest output:\n\n                                               ^^^^^^^^^^^^^^^^^\n\ntests/test_graph.py:431: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nbefore = None\n\n    def reviewer_script(before: list[str] | None = None) -> list[str]:\n        \"\"\"A reviewer script that rejects however you ask, then accepts.\n    \n            reviewer_script(before=[REJECT_RUNG_3])\n    \n        exercises the simplicity gate: reject -> feedback -> rebuild -> accept,\n        entirely offline. Without an explicit script the reviewer would receive the\n        builder's cursor and reply with a diff, which the parser treats as ACCEPT\n        with a warning -- correct behaviour, but it never tests the gate.\n        \"\"\"\n>       return [*(before and []), ACCEPT]\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^\nE       TypeError: Value after * must be an iterable, not NoneType\n\nengine/agents/stub.py:105: TypeError\n=========================== short test summary info ============================\nFAILED tests/test_graph.py::test_clean_solve_ships - TypeError: Value after *...\nFAILED tests/test_graph.py::test_failing_tests_send_the_work_back - TypeError...\nFAILED tests/test_graph.py::test_correctness_cap_means_one_run_plus_three_retries\nFAILED tests/test_graph.py::test_a_patch_that_never_applies_is_its_own_failure_type\nFAILED tests/test_graph.py::test_apply_failure_feeds_gits_words_back_to_the_builder\nFAILED tests/test_graph.py::test_rejection_rebuilds_once - assert 1 == 2\nFAILED tests/test_graph.py::test_tester_gate_off_gets_exactly_one_shot - Type...\nFAILED tests/test_graph.py::test_token_cap_ends_the_task_cleanly_not_as_a_crash\nFAILED tests/test_graph.py::test_a_bare_hunk_header_is_repaired_and_still_ships\nFAILED tests/test_graph.py::test_repair_can_be_turned_off_and_then_the_bare_hunk_fails\nFAILED tests/test_graph.py::test_gate_off_does_not_review_a_patch_the_tests_rejected\nFAILED tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed\nFAILED tests/test_graph.py::test_quota_exhaustion_is_not_recorded_as_a_model_failure\nFAILED tests/test_graph.py::test_dollar_cap_stops_a_task_like_the_token_cap\nFAILED tests/test_graph.py::test_spend_is_tracked_in_state_from_the_ledger - ...\nFAILED tests/test_graph.py::test_an_unverified_patch_never_ships - TypeError:...\nFAILED tests/test_graph.py::test_unverified_is_retried_like_a_failure - TypeE...\nFAILED tests/test_graph.py::test_repo_grader_replaces_the_benchmark_one_entirely\n18 failed, 197 passed, 19 skipped in 10.10s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "b4a00ac9067ce64fe62a4ed65546f47300bb0e4c"
+ },
+ {
+  "mid": "approval-L82-eq_to_ne",
+  "path": "engine/approval.py",
+  "line": 82,
+  "operator": "eq_to_ne",
+  "before": "        f\"  verdict   {verdict}\" + (\"\" if verdict == \"pass\" else",
+  "after": "        f\"  verdict   {verdict}\" + (\"\" if verdict != \"pass\" else",
+  "fail_to_pass": [
+   "tests/test_approval.py::test_a_missing_witness_is_stated_not_omitted"
+  ],
+  "issue": "The test suite is failing. 1 test(s) that passed on the previous commit now fail:\n  - tests/test_approval.py::test_a_missing_witness_is_stated_not_omitted\n\nTest output:\n\n...........................F............................................ [ 30%]\n........................................................................ [ 61%]\n.............................................................sssssssssss [ 92%]\ns..........sssssss                                                       [100%]\n=================================== FAILURES ===================================\n_________________ test_a_missing_witness_is_stated_not_omitted _________________\n\n    def test_a_missing_witness_is_stated_not_omitted():\n        text = approval.describe(\"push\", repo=\"r\", branch=\"b\", base=\"main\",\n                                 verdict=\"unverified\", patch=\"\", witness=[], attempts=1)\n        assert \"NONE\" in text\n>       assert \"nothing proves this fixes anything\" in text\nE       AssertionError: assert 'nothing proves this fixes anything' in '\\n====================================================================\\n  ABOUT TO PUSH\\n============================...------------------------------------------------\\n--------------------------------------------------------------------'\n\ntests/test_approval.py:95: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_approval.py::test_a_missing_witness_is_stated_not_omitted\n1 failed, 214 passed, 19 skipped in 14.55s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "43213da97836db2753c1b1a1f5449fcd186d7f47"
+ },
+ {
+  "mid": "config-L143-eq_to_ne",
+  "path": "engine/config.py",
+  "line": 143,
+  "operator": "eq_to_ne",
+  "before": "        return all(self.model_for(r) == STUB_MODEL for r in ROLES)",
+  "after": "        return all(self.model_for(r) != STUB_MODEL for r in ROLES)",
+  "fail_to_pass": [
+   "tests/test_agents.py::test_is_stub_run_is_false_when_any_role_is_real"
+  ],
+  "issue": "The test suite is failing. 1 test(s) that passed on the previous commit now fail:\n  - tests/test_agents.py::test_is_stub_run_is_false_when_any_role_is_real\n\nTest output:\n\n........F............................................................... [ 30%]\n........................................................................ [ 61%]\n.............................................................sssssssssss [ 92%]\ns..........sssssss                                                       [100%]\n=================================== FAILURES ===================================\n_______________ test_is_stub_run_is_false_when_any_role_is_real ________________\n\n    def test_is_stub_run_is_false_when_any_role_is_real() -> None:\n>       assert stub_cfg().is_stub_run  # only builder set, rest default to stub\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE       AssertionError: assert False\nE        +  where False = RunConfig(run_id='t', task_ids=[], model_for_role={'builder': 'stub'}, tester_gate=True, reviewer_gate=True, scout=Tru...ng=8000, min_completion_tokens=1500, request_token_margin=400, reasoning_effort='low', effort='high', prompt_hashes={}).is_stub_run\nE        +    where RunConfig(run_id='t', task_ids=[], model_for_role={'builder': 'stub'}, tester_gate=True, reviewer_gate=True, scout=Tru...ng=8000, min_completion_tokens=1500, request_token_margin=400, reasoning_effort='low', effort='high', prompt_hashes={}) = stub_cfg()\n\ntests/test_agents.py:104: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_agents.py::test_is_stub_run_is_false_when_any_role_is_real\n1 failed, 214 passed, 19 skipped in 14.68s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "17e0549b88a9d3a01b0c46b4fcf385e2ced6e126"
+ },
+ {
+  "mid": "mutate-L129-ne_to_eq",
+  "path": "engine/eval/mutate.py",
+  "line": 129,
+  "operator": "ne_to_eq",
+  "before": "        if getattr(node, \"end_lineno\", None) != node.lineno:",
+  "after": "        if getattr(node, \"end_lineno\", None) == node.lineno:",
+  "fail_to_pass": [
+   "tests/test_mutate.py::test_a_mutant_is_still_valid_python",
+   "tests/test_mutate.py::test_a_mutation_actually_changes_something",
+   "tests/test_mutate.py::test_mutants_are_spread_across_files",
+   "tests/test_mutate.py::test_only_the_targeted_line_changes",
+   "tests/test_mutate.py::test_the_same_seed_gives_the_same_set"
+  ],
+  "issue": "The test suite is failing. 5 test(s) that passed on the previous commit now fail:\n  - tests/test_mutate.py::test_a_mutant_is_still_valid_python\n  - tests/test_mutate.py::test_a_mutation_actually_changes_something\n  - tests/test_mutate.py::test_mutants_are_spread_across_files\n  - tests/test_mutate.py::test_only_the_targeted_line_changes\n  - tests/test_mutate.py::test_the_same_seed_gives_the_same_set\n\nTest output:\n\n    \"\"\"Going through ast.unparse would reformat the whole file and drop every\n        comment, burying a one-character bug in a thousand-line diff.\"\"\"\n        src = ('# a comment that must survive\\ndef f(a, b):\\n'\n               '    \"\"\"docstring with > and and inside\"\"\"\\n'\n               '    return a > b\\n')\n        write(tmp_path, \"m.py\", src)\n        made = [x for x in (make(tmp_path, \"m.py\", s)\n                            for s in candidates(tmp_path, \"m.py\")) if x]\n>       assert made\nE       assert []\n\ntests/test_mutate.py:87: AssertionError\n____________________ test_the_same_seed_gives_the_same_set _____________________\n\ntmp_path = PosixPath('/tmp/pytest-of-root/pytest-0/test_the_same_seed_gives_the_s0')\n\n    def test_the_same_seed_gives_the_same_set(tmp_path):\n        \"\"\"Experiments must run the same bugs, or E2 and E3 cannot be compared.\"\"\"\n        for i in range(4):\n            write(tmp_path, f\"pkg/m{i}.py\", f\"def f(a, b):\\n    return a > b and a != {i}\\n\")\n        a = [m.mid for m in generate(tmp_path, limit=6, seed=7)]\n        b = [m.mid for m in generate(tmp_path, limit=6, seed=7)]\n        c = [m.mid for m in generate(tmp_path, limit=6, seed=8)]\n>       assert a == b and a != []\nE       assert ([] == []\nE         \nE         Use -v to get more diff and [] != [])\n\ntests/test_mutate.py:114: AssertionError\n_____________________ test_mutants_are_spread_across_files _____________________\n\ntmp_path = PosixPath('/tmp/pytest-of-root/pytest-0/test_mutants_are_spread_across0')\n\n    def test_mutants_are_spread_across_files(tmp_path):\n        \"\"\"Fifty mutations of one hot function would measure one function.\"\"\"\n        for i in range(5):\n            write(tmp_path, f\"pkg/m{i}.py\",\n                  \"def f(a, b):\\n    return a > b and a != 0 or a <= b\\n\")\n        ms = generate(tmp_path, limit=5, seed=1)\n>       assert len({m.path for m in ms}) == 5\nE       assert 0 == 5\nE        +  where 0 = len(set())\n\ntests/test_mutate.py:124: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_mutate.py::test_a_mutant_is_still_valid_python - assert []\nFAILED tests/test_mutate.py::test_a_mutation_actually_changes_something - Val...\nFAILED tests/test_mutate.py::test_only_the_targeted_line_changes - assert []\nFAILED tests/test_mutate.py::test_the_same_seed_gives_the_same_set - assert (...\nFAILED tests/test_mutate.py::test_mutants_are_spread_across_files - assert 0 ...\n5 failed, 210 passed, 19 skipped in 16.34s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "044bbbcafadc29c57f1dd65ebadd924fde4e4840"
+ },
+ {
+  "mid": "events-L105-notin_to_in",
+  "path": "engine/events.py",
+  "line": 105,
+  "operator": "notin_to_in",
+  "before": "        if type not in EVENT_TYPES:",
+  "after": "        if type in EVENT_TYPES:",
+  "fail_to_pass": [
+   "tests/test_events.py::test_a_torn_final_line_does_not_poison_the_read",
+   "tests/test_events.py::test_after_seq_returns_only_the_gap",
+   "tests/test_events.py::test_an_event_carries_the_documented_envelope",
+   "tests/test_events.py::test_an_unknown_type_is_refused",
+   "tests/test_events.py::test_each_event_is_flushed_immediately",
+   "tests/test_events.py::test_no_agent_is_left_activated_forever",
+   "tests/test_events.py::test_payloads_are_small_enough_to_tail",
+   "tests/test_events.py::test_read_events_returns_them_in_order",
+   "tests/test_events.py::test_seq_is_monotonic_from_one",
+   "tests/test_events.py::test_the_writer_fails_loud_when_it_cannot_write",
+   "tests/test_server.py::test_a_missing_run_is_a_404_not_a_traceback",
+   "tests/test_server.py::test_after_seq_serves_only_the_gap",
+   "tests/test_server.py::test_artifact_paths_cannot_escape_the_run_directory",
+   "tests/test_server.py::test_artifacts_are_fetched_lazily",
+   "tests/test_server.py::test_lists_runs_with_a_summary",
+   "tests/test_server.py::test_serves_the_whole_log",
+   "tests/test_server.py::test_the_feed_page_is_served",
+   "tests/test_server.py::test_the_websocket_honours_after_seq",
+   "tests/test_server.py::test_the_websocket_replays_a_finished_run_and_closes"
+  ],
+  "issue": "The test suite is failing. 19 test(s) that passed on the previous commit now fail:\n  - tests/test_events.py::test_a_torn_final_line_does_not_poison_the_read\n  - tests/test_events.py::test_after_seq_returns_only_the_gap\n  - tests/test_events.py::test_an_event_carries_the_documented_envelope\n  - tests/test_events.py::test_an_unknown_type_is_refused\n  - tests/test_events.py::test_each_event_is_flushed_immediately\n  - tests/test_events.py::test_no_agent_is_left_activated_forever\n  - tests/test_events.py::test_payloads_are_small_enough_to_tail\n  - tests/test_events.py::test_read_events_returns_them_in_order\n  - tests/test_events.py::test_seq_is_monotonic_from_one\n  - tests/test_events.py::test_the_writer_fails_loud_when_it_cannot_write\n  - tests/test_server.py::test_a_missing_run_is_a_404_not_a_traceback\n  - tests/test_server.py::test_after_seq_serves_only_the_gap\n\nTest output:\n\n-> dict[str, Any]:\n        \"\"\"Append one event. Returns it, mostly so tests can assert on it.\n    \n        An unknown `type` raises: the closed set is the contract the frontend\n        reducer is written against, and a typo would surface there as an event\n        silently ignored rather than as an error here.\n        \"\"\"\n        if type in EVENT_TYPES:\n>           raise EventLogError(\n                f\"{type!r} is not in the v{SCHEMA_VERSION} event set. Add it to \"\n                f\"EVENT_TYPES deliberately (ADR-10: the schema is frozen; \"\n                f\"consumers ignore unknown types).\"\n            )\nE           engine.events.EventLogError: 'agent_activated' is not in the v1 event set. Add it to EVENT_TYPES deliberately (ADR-10: the schema is frozen; consumers ignore unknown types).\n\nengine/events.py:106: EventLogError\n=========================== short test summary info ============================\nFAILED tests/test_events.py::test_an_event_carries_the_documented_envelope - ...\nFAILED tests/test_events.py::test_an_unknown_type_is_refused - Failed: DID NO...\nFAILED tests/test_events.py::test_seq_is_monotonic_from_one - engine.events.E...\nFAILED tests/test_events.py::test_read_events_returns_them_in_order - engine....\nFAILED tests/test_events.py::test_after_seq_returns_only_the_gap - engine.eve...\nFAILED tests/test_events.py::test_each_event_is_flushed_immediately - engine....\nFAILED tests/test_events.py::test_a_torn_final_line_does_not_poison_the_read\nFAILED tests/test_events.py::test_the_writer_fails_loud_when_it_cannot_write\nFAILED tests/test_events.py::test_payloads_are_small_enough_to_tail - engine....\nFAILED tests/test_events.py::test_no_agent_is_left_activated_forever - engine...\nERROR tests/test_server.py::test_lists_runs_with_a_summary - engine.events.Ev...\nERROR tests/test_server.py::test_serves_the_whole_log - engine.events.EventLo...\nERROR tests/test_server.py::test_after_seq_serves_only_the_gap - engine.event...\nERROR tests/test_server.py::test_a_missing_run_is_a_404_not_a_traceback - eng...\nERROR tests/test_server.py::test_artifacts_are_fetched_lazily - engine.events...\nERROR tests/test_server.py::test_artifact_paths_cannot_escape_the_run_directory\nERROR tests/test_server.py::test_the_websocket_replays_a_finished_run_and_closes\nERROR tests/test_server.py::test_the_websocket_honours_after_seq - engine.eve...\nERROR tests/test_server.py::test_the_feed_page_is_served - engine.events.Even...\n10 failed, 196 passed, 19 skipped, 9 errors in 14.21s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "866bec7031daca5b944b4d46f6b2a77da26bfc83"
+ },
+ {
+  "mid": "graph-L507-isnot_to_is",
+  "path": "engine/graph.py",
+  "line": 507,
+  "operator": "isnot_to_is",
+  "before": "        assert attempt is not None",
+  "after": "        assert attempt is None",
+  "fail_to_pass": [
+   "tests/test_graph.py::test_gate_off_does_not_review_a_patch_the_tests_rejected",
+   "tests/test_graph.py::test_gate_off_never_retries_even_when_the_reviewer_rejects",
+   "tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed",
+   "tests/test_graph.py::test_tester_gate_off_gets_exactly_one_shot"
+  ],
+  "issue": "The test suite is failing. 4 test(s) that passed on the previous commit now fail:\n  - tests/test_graph.py::test_gate_off_does_not_review_a_patch_the_tests_rejected\n  - tests/test_graph.py::test_gate_off_never_retries_even_when_the_reviewer_rejects\n  - tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed\n  - tests/test_graph.py::test_tester_gate_off_gets_exactly_one_shot\n\nTest output:\n\n_ _ _ _ _ _ _ _ _ _ \ntests/test_graph.py:104: in _run\n    return machine.invoke(_state(), {\"recursion_limit\": 40})\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/usr/local/lib/python3.12/site-packages/langgraph/pregel/main.py:3913: in invoke\n    for chunk in self.stream(\n/usr/local/lib/python3.12/site-packages/langgraph/pregel/main.py:2967: in stream\n    for _ in runner.tick(\n/usr/local/lib/python3.12/site-packages/langgraph/pregel/_runner.py:207: in tick\n    run_with_retry(\n/usr/local/lib/python3.12/site-packages/langgraph/pregel/_retry.py:617: in run_with_retry\n    return task.proc.invoke(task.input, config)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/usr/local/lib/python3.12/site-packages/langgraph/_internal/_runnable.py:709: in invoke\n    input = step.invoke(input, config)\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^\n/usr/local/lib/python3.12/site-packages/langgraph/_internal/_runnable.py:447: in invoke\n    ret = self.func(*args, **kwargs)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^\n/usr/local/lib/python3.12/site-packages/langgraph/graph/_branch.py:166: in _route\n    result = self.path.invoke(value, config)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/usr/local/lib/python3.12/site-packages/langgraph/_internal/_runnable.py:440: in invoke\n    ret = context.run(self.func, *args, **kwargs)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nstate = {'task_id': 't__t-1', 'issue': 'greet returns hi', 'repo': 'o/r', 'base_commit': 'abc', ...}\n\n    def after_tester_gate_off(state: TaskState) -> str:\n        \"\"\"One shot: a passing patch may still be reviewed, a failing one ends.\"\"\"\n        if state.get(\"status\") == \"crashed\":\n            return route(state, \"after_tester_gate_off\", \"fail\")\n        attempt = last_attempt(state)\n>       assert attempt is None\n               ^^^^^^^^^^^^^^^\nE       AssertionError\nE       During task with name 'tester' and id '7eb653cd-45d0-5d53-3807-8692d537c841'\n\nengine/graph.py:507: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_graph.py::test_tester_gate_off_gets_exactly_one_shot - Asse...\nFAILED tests/test_graph.py::test_gate_off_never_retries_even_when_the_reviewer_rejects\nFAILED tests/test_graph.py::test_gate_off_does_not_review_a_patch_the_tests_rejected\nFAILED tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed\n4 failed, 211 passed, 19 skipped in 17.89s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "f9a9a874ed8d31a91f8beed338e63d562f1c3b09"
+ },
+ {
+  "mid": "preflight-L171-and_to_or",
+  "path": "engine/preflight.py",
+  "line": 171,
+  "operator": "and_to_or",
+  "before": "    if live and checks[1].ok:",
+  "after": "    if live or checks[1].ok:",
+  "fail_to_pass": [
+   "tests/test_preflight.py::test_preflight_skips_the_live_call_when_the_key_is_already_wrong"
+  ],
+  "issue": "The test suite is failing. 1 test(s) that passed on the previous commit now fail:\n  - tests/test_preflight.py::test_preflight_skips_the_live_call_when_the_key_is_already_wrong\n\nTest output:\n\n........................................................................ [ 30%]\n................................................................F....... [ 61%]\n.............................................................sssssssssss [ 92%]\ns..........sssssss                                                       [100%]\n=================================== FAILURES ===================================\n_______ test_preflight_skips_the_live_call_when_the_key_is_already_wrong _______\n\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fffcebb7800>\n\n    def test_preflight_skips_the_live_call_when_the_key_is_already_wrong(monkeypatch):\n        \"\"\"No point spending a token to confirm a key that is not even set.\"\"\"\n        monkeypatch.delenv(\"ANTHROPIC_API_KEY\", raising=False)\n        names = [c.name for c in pf.preflight(\"claude-sonnet-5\", need_docker=False)]\n>       assert not any(\"works\" in n for n in names)\nE       assert not True\nE        +  where True = any(<generator object test_preflight_skips_the_live_call_when_the_key_is_already_wrong.<locals>.<genexpr> at 0x7fffcecb2810>)\n\ntests/test_preflight.py:122: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_preflight.py::test_preflight_skips_the_live_call_when_the_key_is_already_wrong\n1 failed, 214 passed, 19 skipped in 16.30s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "4322ea029c3ea4ca880c8870d00103d4b6e4ef06"
+ },
+ {
+  "mid": "detect-L121-or_to_and",
+  "path": "engine/repo/detect.py",
+  "line": 121,
+  "operator": "or_to_and",
+  "before": "    extras = (data.get(\"project\") or {}).get(\"optional-dependencies\") or {}",
+  "after": "    extras = (data.get(\"project\") and {}).get(\"optional-dependencies\") or {}",
+  "fail_to_pass": [
+   "tests/test_repo_front_door.py::test_test_only_dependencies_are_installed"
+  ],
+  "issue": "The test suite is failing. 1 test(s) that passed on the previous commit now fail:\n  - tests/test_repo_front_door.py::test_test_only_dependencies_are_installed\n\nTest output:\n\n........................................................................ [ 30%]\n........................................................................ [ 61%]\n...................................................F.........sssssssssss [ 92%]\ns..........sssssss                                                       [100%]\n=================================== FAILURES ===================================\n__________________ test_test_only_dependencies_are_installed ___________________\n\ntmp_path = PosixPath('/tmp/pytest-of-root/pytest-0/test_test_only_dependencies_ar0')\n\n    def test_test_only_dependencies_are_installed(tmp_path):\n        \"\"\"pip install -e . installs neither PEP 735 groups nor unnamed extras.\"\"\"\n        from engine.repo.detect import test_requirements\n    \n        _touch(tmp_path, \"pyproject.toml\",\n               '[project]\\nname=\"x\"\\n'\n               '[project.optional-dependencies]\\ntest = [\"responses\"]\\n'\n               '[dependency-groups]\\ndev = [\"httpx>=0.28.1\", \"pytest\"]\\n'\n               'lint = [\"ruff\"]\\n')\n        got = test_requirements(tmp_path)\n>       assert \"httpx>=0.28.1\" in got and \"responses\" in got\nE       AssertionError: assert ('httpx>=0.28.1' in ['httpx>=0.28.1', 'pytest'] and 'responses' in ['httpx>=0.28.1', 'pytest'])\n\ntests/test_repo_front_door.py:548: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_repo_front_door.py::test_test_only_dependencies_are_installed\n1 failed, 214 passed, 19 skipped in 15.50s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "ecef3d0190c29b079281aa6dfd6e4f46bdff4a89"
+ },
+ {
+  "mid": "patch-L280-eq_to_ne",
+  "path": "engine/repo/patch.py",
+  "line": 280,
+  "operator": "eq_to_ne",
+  "before": "                             for l in body if l[:1] in (\" \", \"-\") or l == \"\"],",
+  "after": "                             for l in body if l[:1] in (\" \", \"-\") or l != \"\"],",
+  "fail_to_pass": [
+   "tests/test_graph.py::test_a_bare_hunk_header_is_repaired_and_still_ships",
+   "tests/test_graph.py::test_a_correct_patch_ships_even_when_the_reviewer_keeps_rejecting",
+   "tests/test_graph.py::test_an_unverified_patch_never_ships",
+   "tests/test_graph.py::test_apply_failure_feeds_gits_words_back_to_the_builder",
+   "tests/test_graph.py::test_clean_solve_ships",
+   "tests/test_graph.py::test_correctness_cap_means_one_run_plus_three_retries",
+   "tests/test_graph.py::test_failing_tests_send_the_work_back",
+   "tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed",
+   "tests/test_graph.py::test_rejection_rebuilds_once",
+   "tests/test_graph.py::test_repo_grader_replaces_the_benchmark_one_entirely",
+   "tests/test_graph.py::test_reviewer_gate_off_never_reviews",
+   "tests/test_graph.py::test_tester_gate_off_gets_exactly_one_shot",
+   "tests/test_graph.py::test_unverified_is_retried_like_a_failure",
+   "tests/test_patch.py::test_repair_computes_the_header_and_the_patch_then_applies",
+   "tests/test_patch.py::test_repair_distinguishes_near_identical_hunks",
+   "tests/test_patch.py::test_repair_never_changes_which_lines_are_added_or_removed"
+  ],
+  "issue": "The test suite is failing. 16 test(s) that passed on the previous commit now fail:\n  - tests/test_graph.py::test_a_bare_hunk_header_is_repaired_and_still_ships\n  - tests/test_graph.py::test_a_correct_patch_ships_even_when_the_reviewer_keeps_rejecting\n  - tests/test_graph.py::test_an_unverified_patch_never_ships\n  - tests/test_graph.py::test_apply_failure_feeds_gits_words_back_to_the_builder\n  - tests/test_graph.py::test_clean_solve_ships\n  - tests/test_graph.py::test_correctness_cap_means_one_run_plus_three_retries\n  - tests/test_graph.py::test_failing_tests_send_the_work_back\n  - tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed\n  - tests/test_graph.py::test_rejection_rebuilds_once\n  - tests/test_graph.py::test_repo_grader_replaces_the_benchmark_one_entirely\n  - tests/test_graph.py::test_reviewer_gate_off_never_reviews\n  - tests/test_graph.py::test_tester_gate_off_gets_exactly_one_shot\n\nTest output:\n\nle j < len(lines) and not lines[j].startswith((\"@@\", \"diff --git \")):\n                    body.append(lines[j])\n                    j += 1\n    \n                old_count = sum(1 for l in body if l[:1] in (\" \", \"-\") or l == \"\")\n                new_count = sum(1 for l in body if l[:1] in (\" \", \"+\") or l == \"\")\n    \n                start = _locate([l[1:] if l[:1] in (\" \", \"-\") else l\n                                 for l in body if l[:1] in (\" \", \"-\") or l != \"\"],\n                                source, cursor)\n                if start is None:\n>                   raise PatchError(\n                        f\"{path}: the context lines of a hunk do not appear in the \"\n                        \"file. Copy them exactly from the source instead of \"\n                        \"reconstructing them from memory.\"\n                    )\nE                   engine.errors.PatchError: two.py: the context lines of a hunk do not appear in the file. Copy them exactly from the source instead of reconstructing them from memory.\n\nengine/repo/patch.py:283: PatchError\n=========================== short test summary info ============================\nFAILED tests/test_graph.py::test_clean_solve_ships - AssertionError: assert '...\nFAILED tests/test_graph.py::test_failing_tests_send_the_work_back - Assertion...\nFAILED tests/test_graph.py::test_correctness_cap_means_one_run_plus_three_retries\nFAILED tests/test_graph.py::test_apply_failure_feeds_gits_words_back_to_the_builder\nFAILED tests/test_graph.py::test_rejection_rebuilds_once - AssertionError: as...\nFAILED tests/test_graph.py::test_a_correct_patch_ships_even_when_the_reviewer_keeps_rejecting\nFAILED tests/test_graph.py::test_tester_gate_off_gets_exactly_one_shot - Asse...\nFAILED tests/test_graph.py::test_reviewer_gate_off_never_reviews - AssertionE...\nFAILED tests/test_graph.py::test_a_bare_hunk_header_is_repaired_and_still_ships\nFAILED tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed\nFAILED tests/test_graph.py::test_an_unverified_patch_never_ships - AssertionE...\nFAILED tests/test_graph.py::test_unverified_is_retried_like_a_failure - Asser...\nFAILED tests/test_graph.py::test_repo_grader_replaces_the_benchmark_one_entirely\nFAILED tests/test_patch.py::test_repair_computes_the_header_and_the_patch_then_applies\nFAILED tests/test_patch.py::test_repair_never_changes_which_lines_are_added_or_removed\nFAILED tests/test_patch.py::test_repair_distinguishes_near_identical_hunks - ...\n16 failed, 199 passed, 19 skipped in 13.21s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "608171ee1f487d1db37af5316c35df647de2f856"
+ },
+ {
+  "mid": "search-L41-isnot_to_is",
+  "path": "engine/repo/search.py",
+  "line": 41,
+  "operator": "isnot_to_is",
+  "before": "    return shutil.which(\"rg\") is not None",
+  "after": "    return shutil.which(\"rg\") is None",
+  "fail_to_pass": [
+   "tests/test_scout.py::test_pack_covers_every_matching_symbol_not_just_one",
+   "tests/test_scout.py::test_pack_respects_the_token_budget",
+   "tests/test_scout.py::test_ranking_ignores_test_files",
+   "tests/test_scout.py::test_ranks_by_number_of_distinct_terms",
+   "tests/test_scout.py::test_render_states_that_paths_and_lines_are_real"
+  ],
+  "issue": "The test suite is failing. 5 test(s) that passed on the previous commit now fail:\n  - tests/test_scout.py::test_pack_covers_every_matching_symbol_not_just_one\n  - tests/test_scout.py::test_pack_respects_the_token_budget\n  - tests/test_scout.py::test_ranking_ignores_test_files\n  - tests/test_scout.py::test_ranks_by_number_of_distinct_terms\n  - tests/test_scout.py::test_render_states_that_paths_and_lines_are_real\n\nTest output:\n\n   finally:\n            # be sure the FD is closed no matter what\n            os.close(errpipe_read)\n    \n        if errpipe_data:\n            try:\n                pid, sts = os.waitpid(self.pid, 0)\n                if pid == self.pid:\n                    self._handle_exitstatus(sts)\n                else:\n                    self.returncode = sys.maxsize\n            except ChildProcessError:\n                pass\n    \n            try:\n                exception_name, hex_errno, err_msg = (\n                        errpipe_data.split(b':', 2))\n                # The encoding here should match the encoding\n                # written in by the subprocess implementations\n                # like _posixsubprocess\n                err_msg = err_msg.decode()\n            except ValueError:\n                exception_name = b'SubprocessError'\n                hex_errno = b'0'\n                err_msg = 'Bad exception data from child: {!r}'.format(\n                              bytes(errpipe_data))\n            child_exception_type = getattr(\n                    builtins, exception_name.decode('ascii'),\n                    SubprocessError)\n            if issubclass(child_exception_type, OSError) and hex_errno:\n                errno_num = int(hex_errno, 16)\n                if err_msg == \"noexec:chdir\":\n                    err_msg = \"\"\n                    # The error must be from chdir(cwd).\n                    err_filename = cwd\n                elif err_msg == \"noexec\":\n                    err_msg = \"\"\n                    err_filename = None\n                else:\n                    err_filename = orig_executable\n                if errno_num != 0:\n                    err_msg = os.strerror(errno_num)\n                if err_filename is not None:\n>                   raise child_exception_type(errno_num, err_msg, err_filename)\nE                   FileNotFoundError: [Errno 2] No such file or directory: 'rg'\n\n/usr/local/lib/python3.12/subprocess.py:1955: FileNotFoundError\n=========================== short test summary info ============================\nFAILED tests/test_scout.py::test_ranks_by_number_of_distinct_terms - FileNotF...\nFAILED tests/test_scout.py::test_ranking_ignores_test_files - FileNotFoundErr...\nFAILED tests/test_scout.py::test_pack_covers_every_matching_symbol_not_just_one\nFAILED tests/test_scout.py::test_pack_respects_the_token_budget - FileNotFoun...\nFAILED tests/test_scout.py::test_render_states_that_paths_and_lines_are_real\n5 failed, 222 passed, 7 skipped in 15.44s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "5a19c91f4bc73573c04d666c8bf68da3d03ae519"
+ },
+ {
+  "mid": "aggregate-L85-eq_to_ne",
+  "path": "engine/report/aggregate.py",
+  "line": 85,
+  "operator": "eq_to_ne",
+  "before": "        if row.get(\"solved\") == \"True\":",
+  "after": "        if row.get(\"solved\") != \"True\":",
+  "fail_to_pass": [
+   "tests/test_report.py::test_counts_and_rate"
+  ],
+  "issue": "The test suite is failing. 1 test(s) that passed on the previous commit now fail:\n  - tests/test_report.py::test_counts_and_rate\n\nTest output:\n\n........................................................................ [ 30%]\n........................................................................ [ 61%]\n....................................................F........sssssssssss [ 92%]\ns..........sssssss                                                       [100%]\n=================================== FAILURES ===================================\n_____________________________ test_counts_and_rate _____________________________\n\ntmp_path = PosixPath('/tmp/pytest-of-root/pytest-0/test_counts_and_rate0')\n\n    def test_counts_and_rate(tmp_path: Path) -> None:\n        run = _make_run(tmp_path, \"r\", [\n            _row(\"a\", True, 1), _row(\"b\", False, 4, \"failed_tests\"),\n            _row(\"c\", True, 2), _row(\"d\", False, 4, \"patch_apply_error\"),\n        ])\n        s = summarize(run)\n        assert (s.tasks, s.solved) == (4, 2)\n        assert s.success_rate == 0.5\n>       assert s.failures == {\"failed_tests\": 1, \"patch_apply_error\": 1}\nE       AssertionError: assert {'unknown': 2} == {'failed_test...ply_error': 1}\nE         \nE         Left contains 1 more item:\nE         {'unknown': 2}\nE         Right contains 2 more items:\nE         {'failed_tests': 1, 'patch_apply_error': 1}\nE         Use -v to get more diff\n\ntests/test_report.py:59: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_report.py::test_counts_and_rate - AssertionError: assert {'...\n1 failed, 214 passed, 19 skipped in 14.64s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "6cd4b961396c21e29eea0585503612e8239ae425"
+ },
+ {
+  "mid": "state-L98-or_to_and",
+  "path": "engine/state.py",
+  "line": 98,
+  "operator": "or_to_and",
+  "before": "    attempts = state.get(\"attempts\") or []",
+  "after": "    attempts = state.get(\"attempts\") and []",
+  "fail_to_pass": [
+   "tests/test_graph.py::test_a_bare_hunk_header_is_repaired_and_still_ships",
+   "tests/test_graph.py::test_a_correct_patch_ships_even_when_the_reviewer_keeps_rejecting",
+   "tests/test_graph.py::test_a_patch_that_never_applies_is_its_own_failure_type",
+   "tests/test_graph.py::test_an_unverified_patch_never_ships",
+   "tests/test_graph.py::test_apply_failure_feeds_gits_words_back_to_the_builder",
+   "tests/test_graph.py::test_clean_solve_ships",
+   "tests/test_graph.py::test_correctness_cap_means_one_run_plus_three_retries",
+   "tests/test_graph.py::test_dollar_cap_stops_a_task_like_the_token_cap",
+   "tests/test_graph.py::test_failing_tests_send_the_work_back",
+   "tests/test_graph.py::test_gate_off_does_not_review_a_patch_the_tests_rejected",
+   "tests/test_graph.py::test_gate_off_never_retries_even_when_the_reviewer_rejects",
+   "tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed",
+   "tests/test_graph.py::test_rejection_rebuilds_once",
+   "tests/test_graph.py::test_repair_can_be_turned_off_and_then_the_bare_hunk_fails",
+   "tests/test_graph.py::test_repo_grader_replaces_the_benchmark_one_entirely",
+   "tests/test_graph.py::test_reviewer_gate_off_never_reviews",
+   "tests/test_graph.py::test_spend_is_tracked_in_state_from_the_ledger",
+   "tests/test_graph.py::test_tester_gate_off_gets_exactly_one_shot",
+   "tests/test_graph.py::test_token_cap_ends_the_task_cleanly_not_as_a_crash",
+   "tests/test_graph.py::test_unverified_is_retried_like_a_failure"
+  ],
+  "issue": "The test suite is failing. 20 test(s) that passed on the previous commit now fail:\n  - tests/test_graph.py::test_a_bare_hunk_header_is_repaired_and_still_ships\n  - tests/test_graph.py::test_a_correct_patch_ships_even_when_the_reviewer_keeps_rejecting\n  - tests/test_graph.py::test_a_patch_that_never_applies_is_its_own_failure_type\n  - tests/test_graph.py::test_an_unverified_patch_never_ships\n  - tests/test_graph.py::test_apply_failure_feeds_gits_words_back_to_the_builder\n  - tests/test_graph.py::test_clean_solve_ships\n  - tests/test_graph.py::test_correctness_cap_means_one_run_plus_three_retries\n  - tests/test_graph.py::test_dollar_cap_stops_a_task_like_the_token_cap\n  - tests/test_graph.py::test_failing_tests_send_the_work_back\n  - tests/test_graph.py::test_gate_off_does_not_review_a_patch_the_tests_rejected\n  - tests/test_graph.py::test_gate_off_never_retries_even_when_the_reviewer_rejects\n  - tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed\n\nTest output:\n\n.12/site-packages/langgraph/_internal/_runnable.py:440: in invoke\n    ret = context.run(self.func, *args, **kwargs)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nstate = {'task_id': 't__t-1', 'issue': 'greet returns hi', 'repo': 'o/r', 'base_commit': 'abc', ...}\n\n    def after_tester(state: TaskState) -> str:\n        if state.get(\"status\") == \"crashed\":\n            return route(state, \"after_tester\", \"fail\")\n        attempt = last_attempt(state)\n>       assert attempt is not None\n               ^^^^^^^^^^^^^^^^^^^\nE       AssertionError\nE       During task with name 'tester' and id '1751d082-b00a-2e99-4a6d-dc4651f3d2c3'\n\nengine/graph.py:489: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_graph.py::test_clean_solve_ships - AssertionError\nFAILED tests/test_graph.py::test_failing_tests_send_the_work_back - Assertion...\nFAILED tests/test_graph.py::test_correctness_cap_means_one_run_plus_three_retries\nFAILED tests/test_graph.py::test_a_patch_that_never_applies_is_its_own_failure_type\nFAILED tests/test_graph.py::test_apply_failure_feeds_gits_words_back_to_the_builder\nFAILED tests/test_graph.py::test_rejection_rebuilds_once - AssertionError\nFAILED tests/test_graph.py::test_a_correct_patch_ships_even_when_the_reviewer_keeps_rejecting\nFAILED tests/test_graph.py::test_tester_gate_off_gets_exactly_one_shot - Asse...\nFAILED tests/test_graph.py::test_reviewer_gate_off_never_reviews - AssertionE...\nFAILED tests/test_graph.py::test_token_cap_ends_the_task_cleanly_not_as_a_crash\nFAILED tests/test_graph.py::test_a_bare_hunk_header_is_repaired_and_still_ships\nFAILED tests/test_graph.py::test_repair_can_be_turned_off_and_then_the_bare_hunk_fails\nFAILED tests/test_graph.py::test_gate_off_never_retries_even_when_the_reviewer_rejects\nFAILED tests/test_graph.py::test_gate_off_does_not_review_a_patch_the_tests_rejected\nFAILED tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed\nFAILED tests/test_graph.py::test_dollar_cap_stops_a_task_like_the_token_cap\nFAILED tests/test_graph.py::test_spend_is_tracked_in_state_from_the_ledger - ...\nFAILED tests/test_graph.py::test_an_unverified_patch_never_ships - AssertionE...\nFAILED tests/test_graph.py::test_unverified_is_retried_like_a_failure - Asser...\nFAILED tests/test_graph.py::test_repo_grader_replaces_the_benchmark_one_entirely\n20 failed, 195 passed, 19 skipped in 15.53s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "92cc5202846baaecc07f56311737bd82f43e8374"
+ },
+ {
+  "mid": "ledger-L70-drop_not",
+  "path": "engine/accounting/ledger.py",
+  "line": 70,
+  "operator": "drop_not",
+  "before": "        if not exists:",
+  "after": "        if exists:",
+  "fail_to_pass": [
+   "tests/test_batch.py::test_run_spend_sums_every_arm_from_disk",
+   "tests/test_report.py::test_no_dollar_figure_when_a_call_was_unpriced",
+   "tests/test_report.py::test_usd_per_solved_is_total_spend_over_solved_count"
+  ],
+  "issue": "The test suite is failing. 3 test(s) that passed on the previous commit now fail:\n  - tests/test_batch.py::test_run_spend_sums_every_arm_from_disk\n  - tests/test_report.py::test_no_dollar_figure_when_a_call_was_unpriced\n  - tests/test_report.py::test_usd_per_solved_is_total_spend_over_solved_count\n\nTest output:\n\nkens\"]),\n                    completion_tokens=int(r[\"completion_tokens\"]),\n                    usd=float(r[\"usd\"]), priced=r[\"priced\"] == \"True\",\n                    latency_ms=int(r[\"latency_ms\"]),\n                )\n                for r in csv.DictReader(handle)\n            ]\nE           KeyError: 'task_id'\n\nengine/accounting/ledger.py:89: KeyError\n________________ test_no_dollar_figure_when_a_call_was_unpriced ________________\n\ntmp_path = PosixPath('/tmp/pytest-of-root/pytest-0/test_no_dollar_figure_when_a_c0')\n\n    def test_no_dollar_figure_when_a_call_was_unpriced(tmp_path: Path) -> None:\n        \"\"\"A missing price understates cost and looks like a bargain.\"\"\"\n        run = _make_run(tmp_path, \"r\", [_row(\"a\", True, 1)],\n                        ledger=[_call(\"a\"), _call(\"a\", model=\"mystery-model\")])\n>       s = summarize(run)\n            ^^^^^^^^^^^^^^\n\ntests/test_report.py:89: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \nengine/report/aggregate.py:91: in summarize\n    ledger = read_ledger(run_dir / \"ledger.csv\")\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\npath = PosixPath('/tmp/pytest-of-root/pytest-0/test_no_dollar_figure_when_a_c0/r/ledger.csv')\n\n    def read(path: Path) -> list[LedgerRow]:\n        \"\"\"Read a ledger back. Empty when the file does not exist.\"\"\"\n        if not Path(path).is_file():\n            return []\n        with Path(path).open(newline=\"\", encoding=\"utf-8\") as handle:\n            return [\n                LedgerRow(\n>                   task_id=r[\"task_id\"], attempt=int(r[\"attempt\"]), role=r[\"role\"],\n                            ^^^^^^^^^^^^\n                    model=r[\"model\"], prompt_tokens=int(r[\"prompt_tokens\"]),\n                    completion_tokens=int(r[\"completion_tokens\"]),\n                    usd=float(r[\"usd\"]), priced=r[\"priced\"] == \"True\",\n                    latency_ms=int(r[\"latency_ms\"]),\n                )\n                for r in csv.DictReader(handle)\n            ]\nE           KeyError: 'task_id'\n\nengine/accounting/ledger.py:89: KeyError\n=========================== short test summary info ============================\nFAILED tests/test_batch.py::test_run_spend_sums_every_arm_from_disk - KeyErro...\nFAILED tests/test_report.py::test_usd_per_solved_is_total_spend_over_solved_count\nFAILED tests/test_report.py::test_no_dollar_figure_when_a_call_was_unpriced\n3 failed, 212 passed, 19 skipped in 14.11s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "1eda42364fb8c64c21af0f7562a1f70d3295b9de"
+ },
+ {
+  "mid": "stub-L65-or_to_and",
+  "path": "engine/agents/stub.py",
+  "line": 65,
+  "operator": "or_to_and",
+  "before": "        script = self.scripts.get(role) or [\"\"]",
+  "after": "        script = self.scripts.get(role) and [\"\"]",
+  "fail_to_pass": [
+   "tests/test_agents.py::test_last_response_repeats_once_exhausted",
+   "tests/test_agents.py::test_roles_have_independent_cursors",
+   "tests/test_agents.py::test_script_is_consumed_in_order",
+   "tests/test_agents.py::test_stub_model_returns_scripted_text_and_estimated_usage",
+   "tests/test_graph.py::test_a_bare_hunk_header_is_repaired_and_still_ships",
+   "tests/test_graph.py::test_a_correct_patch_ships_even_when_the_reviewer_keeps_rejecting",
+   "tests/test_graph.py::test_an_unverified_patch_never_ships",
+   "tests/test_graph.py::test_apply_failure_feeds_gits_words_back_to_the_builder",
+   "tests/test_graph.py::test_clean_solve_ships",
+   "tests/test_graph.py::test_correctness_cap_means_one_run_plus_three_retries",
+   "tests/test_graph.py::test_failing_tests_send_the_work_back",
+   "tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed",
+   "tests/test_graph.py::test_rejection_rebuilds_once",
+   "tests/test_graph.py::test_repo_grader_replaces_the_benchmark_one_entirely",
+   "tests/test_graph.py::test_reviewer_gate_off_never_reviews",
+   "tests/test_graph.py::test_tester_gate_off_gets_exactly_one_shot",
+   "tests/test_graph.py::test_unverified_is_retried_like_a_failure"
+  ],
+  "issue": "The test suite is failing. 17 test(s) that passed on the previous commit now fail:\n  - tests/test_agents.py::test_last_response_repeats_once_exhausted\n  - tests/test_agents.py::test_roles_have_independent_cursors\n  - tests/test_agents.py::test_script_is_consumed_in_order\n  - tests/test_agents.py::test_stub_model_returns_scripted_text_and_estimated_usage\n  - tests/test_graph.py::test_a_bare_hunk_header_is_repaired_and_still_ships\n  - tests/test_graph.py::test_a_correct_patch_ships_even_when_the_reviewer_keeps_rejecting\n  - tests/test_graph.py::test_an_unverified_patch_never_ships\n  - tests/test_graph.py::test_apply_failure_feeds_gits_words_back_to_the_builder\n  - tests/test_graph.py::test_clean_solve_ships\n  - tests/test_graph.py::test_correctness_cap_means_one_run_plus_three_retries\n  - tests/test_graph.py::test_failing_tests_send_the_work_back\n  - tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed\n\nTest output:\n\npped\nE         + patch_apply_error\n\ntests/test_graph.py:422: AssertionError\n_____________ test_repo_grader_replaces_the_benchmark_one_entirely _____________\n\nharness = (<function harness.<locals>.make at 0x7fffcebcd440>, PosixPath('/tmp/pytest-of-root/pytest-0/test_repo_grader_replaces_the_0'))\n\n    def test_repo_grader_replaces_the_benchmark_one_entirely(harness) -> None:\n        \"\"\"With a grader injected, the SWE-bench harness must not be consulted.\"\"\"\n        make, run_dir = harness\n        cfg, calls = make([\"fail\"])        # would fail if the benchmark grader ran\n        stub = StubBackend(scripts={\"builder\": builder_script(GOLD),\n                                    \"reviewer\": reviewer_script()})\n        final, _ = _repo_run(cfg, stub, run_dir, [\"pass\"])\n>       assert final[\"status\"] == \"shipped\"\nE       AssertionError: assert 'patch_apply_error' == 'shipped'\nE         \nE         - shipped\nE         + patch_apply_error\n\ntests/test_graph.py:433: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_agents.py::test_script_is_consumed_in_order - AssertionErro...\nFAILED tests/test_agents.py::test_last_response_repeats_once_exhausted - Asse...\nFAILED tests/test_agents.py::test_roles_have_independent_cursors - AssertionE...\nFAILED tests/test_agents.py::test_stub_model_returns_scripted_text_and_estimated_usage\nFAILED tests/test_graph.py::test_clean_solve_ships - AssertionError: assert '...\nFAILED tests/test_graph.py::test_failing_tests_send_the_work_back - Assertion...\nFAILED tests/test_graph.py::test_correctness_cap_means_one_run_plus_three_retries\nFAILED tests/test_graph.py::test_apply_failure_feeds_gits_words_back_to_the_builder\nFAILED tests/test_graph.py::test_rejection_rebuilds_once - AssertionError: as...\nFAILED tests/test_graph.py::test_a_correct_patch_ships_even_when_the_reviewer_keeps_rejecting\nFAILED tests/test_graph.py::test_tester_gate_off_gets_exactly_one_shot - Asse...\nFAILED tests/test_graph.py::test_reviewer_gate_off_never_reviews - AssertionE...\nFAILED tests/test_graph.py::test_a_bare_hunk_header_is_repaired_and_still_ships\nFAILED tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed\nFAILED tests/test_graph.py::test_an_unverified_patch_never_ships - AssertionE...\nFAILED tests/test_graph.py::test_unverified_is_retried_like_a_failure - Asser...\nFAILED tests/test_graph.py::test_repo_grader_replaces_the_benchmark_one_entirely\n17 failed, 198 passed, 19 skipped in 13.40s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "5d83513b83d10947ad702ef9156c5d7f59b9f0dc"
+ },
+ {
+  "mid": "approval-L113-ne_to_eq",
+  "path": "engine/approval.py",
+  "line": 113,
+  "operator": "ne_to_eq",
+  "before": "    strict = verdict != \"pass\"",
+  "after": "    strict = verdict == \"pass\"",
+  "fail_to_pass": [
+   "tests/test_approval.py::test_a_plain_yes_approves_a_verified_fix",
+   "tests/test_approval.py::test_a_reflex_y_cannot_ship_an_unverified_change",
+   "tests/test_approval.py::test_unverified_ships_only_when_the_whole_word_is_typed"
+  ],
+  "issue": "The test suite is failing. 3 test(s) that passed on the previous commit now fail:\n  - tests/test_approval.py::test_a_plain_yes_approves_a_verified_fix\n  - tests/test_approval.py::test_a_reflex_y_cannot_ship_an_unverified_change\n  - tests/test_approval.py::test_unverified_ships_only_when_the_whole_word_is_typed\n\nTest output:\n\n.....................FFF................................................ [ 30%]\n........................................................................ [ 61%]\n.............................................................sssssssssss [ 92%]\ns..........sssssss                                                       [100%]\n=================================== FAILURES ===================================\n___________________ test_a_plain_yes_approves_a_verified_fix ___________________\n\n    def test_a_plain_yes_approves_a_verified_fix():\n>       assert _ask(\"y\").approved is True\nE       AssertionError: assert False is True\nE        +  where False = Decision(approved=False, how='human_no').approved\nE        +    where Decision(approved=False, how='human_no') = _ask('y')\n\ntests/test_approval.py:48: AssertionError\n_______________ test_a_reflex_y_cannot_ship_an_unverified_change _______________\n\n    def test_a_reflex_y_cannot_ship_an_unverified_change():\n        \"\"\"`pass` has a witness test behind it; `unverified` has nothing. A muscle\n        -memory keystroke must not be able to ship what nobody can vouch for.\"\"\"\n>       assert _ask(\"y\", verdict=\"unverified\").approved is False\nE       AssertionError: assert True is False\nE        +  where True = Decision(approved=True, how='human_yes').approved\nE        +    where Decision(approved=True, how='human_yes') = _ask('y', verdict='unverified')\n\ntests/test_approval.py:57: AssertionError\n___________ test_unverified_ships_only_when_the_whole_word_is_typed ____________\n\n    def test_unverified_ships_only_when_the_whole_word_is_typed():\n>       assert _ask(\"unverified\", verdict=\"unverified\").approved is True\nE       AssertionError: assert False is True\nE        +  where False = Decision(approved=False, how='human_no').approved\nE        +    where Decision(approved=False, how='human_no') = _ask('unverified', verdict='unverified')\n\ntests/test_approval.py:61: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_approval.py::test_a_plain_yes_approves_a_verified_fix - Ass...\nFAILED tests/test_approval.py::test_a_reflex_y_cannot_ship_an_unverified_change\nFAILED tests/test_approval.py::test_unverified_ships_only_when_the_whole_word_is_typed\n3 failed, 212 passed, 19 skipped in 14.46s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "ad4d483c270621785be6988bc6751dcbbb1c56fb"
+ },
+ {
+  "mid": "batch-L151-ne_to_eq",
+  "path": "engine/batch.py",
+  "line": 151,
+  "operator": "ne_to_eq",
+  "before": "        if field in stored and stored[field] != wanted.get(field):",
+  "after": "        if field in stored and stored[field] == wanted.get(field):",
+  "fail_to_pass": [
+   "tests/test_batch.py::test_a_matching_config_resumes_normally",
+   "tests/test_batch.py::test_resume_is_refused_when_the_gates_differ",
+   "tests/test_batch.py::test_resume_is_refused_when_the_model_differs"
+  ],
+  "issue": "The test suite is failing. 3 test(s) that passed on the previous commit now fail:\n  - tests/test_batch.py::test_a_matching_config_resumes_normally\n  - tests/test_batch.py::test_resume_is_refused_when_the_gates_differ\n  - tests/test_batch.py::test_resume_is_refused_when_the_model_differs\n\nTest output:\n\ntask_ids=[], tester_gate=True)\n>       assert resume_conflict(tmp_path, cfg)\nE       AssertionError: assert None\nE        +  where None = <function resume_conflict at 0x7fffcf9e3b00>(PosixPath('/tmp/pytest-of-root/pytest-0/test_resume_is_refused_when_th1'), RunConfig(run_id='x', task_ids=[], model_for_role={}, tester_gate=True, reviewer_gate=True, scout=True, max_correctnes...ng=8000, min_completion_tokens=1500, request_token_margin=400, reasoning_effort='low', effort='high', prompt_hashes={}))\n\ntests/test_batch.py:133: AssertionError\n___________________ test_a_matching_config_resumes_normally ____________________\n\ntmp_path = PosixPath('/tmp/pytest-of-root/pytest-0/test_a_matching_config_resumes0')\n\n    def test_a_matching_config_resumes_normally(tmp_path: Path) -> None:\n        from engine.batch import resume_conflict\n        from engine.config import RunConfig\n    \n        cfg = RunConfig(run_id=\"x\", task_ids=[],\n                        model_for_role={\"builder\": \"claude-sonnet-5\"})\n        _write_config(tmp_path, model_for_role={\"builder\": \"claude-sonnet-5\"},\n                      tester_gate=True, reviewer_gate=True, scout=True)\n>       assert resume_conflict(tmp_path, cfg) is None\nE       assert \"/tmp/pytest-of-root/pytest-0/test_a_matching_config_resumes0 was produced with model_for_role={'builder': 'claude-son...-sonnet-5'}. Resuming would mix results from two different configurations into one table. Choose a different --run-id.\" is None\nE        +  where \"/tmp/pytest-of-root/pytest-0/test_a_matching_config_resumes0 was produced with model_for_role={'builder': 'claude-son...-sonnet-5'}. Resuming would mix results from two different configurations into one table. Choose a different --run-id.\" = <function resume_conflict at 0x7fffcf9e3b00>(PosixPath('/tmp/pytest-of-root/pytest-0/test_a_matching_config_resumes0'), RunConfig(run_id='x', task_ids=[], model_for_role={'builder': 'claude-sonnet-5'}, tester_gate=True, reviewer_gate=True...ng=8000, min_completion_tokens=1500, request_token_margin=400, reasoning_effort='low', effort='high', prompt_hashes={}))\n\ntests/test_batch.py:155: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_batch.py::test_resume_is_refused_when_the_model_differs - a...\nFAILED tests/test_batch.py::test_resume_is_refused_when_the_gates_differ - As...\nFAILED tests/test_batch.py::test_a_matching_config_resumes_normally - assert ...\n3 failed, 212 passed, 19 skipped in 14.83s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "03a753c358e24e9c95aeb95bf1c8c5e26a139e02"
+ },
+ {
+  "mid": "config-L156-ne_to_eq",
+  "path": "engine/config.py",
+  "line": 156,
+  "operator": "ne_to_eq",
+  "before": "        if p.stem != \"README\"",
+  "after": "        if p.stem == \"README\"",
+  "fail_to_pass": [
+   "tests/test_agents.py::test_prompt_hashes_change_when_a_prompt_changes",
+   "tests/test_agents.py::test_prompt_hashes_skip_the_readme"
+  ],
+  "issue": "The test suite is failing. 2 test(s) that passed on the previous commit now fail:\n  - tests/test_agents.py::test_prompt_hashes_change_when_a_prompt_changes\n  - tests/test_agents.py::test_prompt_hashes_skip_the_readme\n\nTest output:\n\n..........FF............................................................ [ 30%]\n........................................................................ [ 61%]\n.............................................................sssssssssss [ 92%]\ns..........sssssss                                                       [100%]\n=================================== FAILURES ===================================\n_______________ test_prompt_hashes_change_when_a_prompt_changes ________________\n\ntmp_path = PosixPath('/tmp/pytest-of-root/pytest-0/test_prompt_hashes_change_when0')\n\n    def test_prompt_hashes_change_when_a_prompt_changes(tmp_path: Path) -> None:\n        \"\"\"This is the whole provenance mechanism -- if it doesn't move, NFR-1 is a lie.\"\"\"\n        (tmp_path / \"builder.md\").write_text(\"version one\")\n        first = prompt_hashes(tmp_path)\n        (tmp_path / \"builder.md\").write_text(\"version two\")\n>       assert prompt_hashes(tmp_path) != first\nE       AssertionError: assert {} != {}\nE        +  where {} = prompt_hashes(PosixPath('/tmp/pytest-of-root/pytest-0/test_prompt_hashes_change_when0'))\n\ntests/test_agents.py:124: AssertionError\n______________________ test_prompt_hashes_skip_the_readme ______________________\n\ntmp_path = PosixPath('/tmp/pytest-of-root/pytest-0/test_prompt_hashes_skip_the_re0')\n\n    def test_prompt_hashes_skip_the_readme(tmp_path: Path) -> None:\n        (tmp_path / \"README.md\").write_text(\"docs\")\n        (tmp_path / \"builder.md\").write_text(\"prompt\")\n>       assert set(prompt_hashes(tmp_path)) == {\"builder\"}\nE       AssertionError: assert {'README'} == {'builder'}\nE         \nE         Extra items in the left set:\nE         'README'\nE         Extra items in the right set:\nE         'builder'\nE         Use -v to get more diff\n\ntests/test_agents.py:130: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_agents.py::test_prompt_hashes_change_when_a_prompt_changes\nFAILED tests/test_agents.py::test_prompt_hashes_skip_the_readme - AssertionEr...\n2 failed, 213 passed, 19 skipped in 14.61s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "19309bc625e364dd012c42c6ba66bc30aae121ea"
+ },
+ {
+  "mid": "graph-L508-ne_to_eq",
+  "path": "engine/graph.py",
+  "line": 508,
+  "operator": "ne_to_eq",
+  "before": "        if not attempt.get(\"patch_applied\") or attempt.get(\"test_verdict\") != \"pass\":",
+  "after": "        if not attempt.get(\"patch_applied\") or attempt.get(\"test_verdict\") == \"pass\":",
+  "fail_to_pass": [
+   "tests/test_graph.py::test_gate_off_does_not_review_a_patch_the_tests_rejected",
+   "tests/test_graph.py::test_gate_off_never_retries_even_when_the_reviewer_rejects",
+   "tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed"
+  ],
+  "issue": "The test suite is failing. 3 test(s) that passed on the previous commit now fail:\n  - tests/test_graph.py::test_gate_off_does_not_review_a_patch_the_tests_rejected\n  - tests/test_graph.py::test_gate_off_never_retries_even_when_the_reviewer_rejects\n  - tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed\n\nTest output:\n\ntester_gate=False)\n        stub = StubBackend(scripts={\"builder\": builder_script(GOLD),\n                                    \"reviewer\": [REJECT_RUNG_3]})\n        final = _run(cfg, stub, run_dir)\n>       assert len(final[\"attempts\"]) == 1\nE       assert 2 == 1\nE        +  where 2 = len([{'n': 1, 'patch': \"diff --git a/hello.py b/hello.py\\nindex 0d0ca34..abf5389 100644\\n--- a/hello.py\\n+++ b/hello.py\\n@...,2 +1,2 @@\\n def greet():\\n-    return 'hi'\\n+    return 'hello'\\n\", 'patch_applied': True, 'apply_mode': '3way', ...}])\n\ntests/test_graph.py:279: AssertionError\n___________ test_gate_off_does_not_review_a_patch_the_tests_rejected ___________\n\nharness = (<function harness.<locals>.make at 0x7fffcebf47c0>, PosixPath('/tmp/pytest-of-root/pytest-0/test_gate_off_does_not_review_0'))\n\n    def test_gate_off_does_not_review_a_patch_the_tests_rejected(harness) -> None:\n        \"\"\"Correctness is not the reviewer's call -- it never sees a failing patch.\"\"\"\n        make, run_dir = harness\n        cfg, _ = make([\"fail\"], tester_gate=False)\n        stub = StubBackend(scripts={\"builder\": builder_script(GOLD),\n                                    \"reviewer\": reviewer_script()})\n        final = _run(cfg, stub, run_dir)\n>       assert final[\"attempts\"][0][\"review_verdict\"] is None\nE       AssertionError: assert 'accept' is None\n\ntests/test_graph.py:289: AssertionError\n_______________ test_gate_off_still_reviews_a_patch_that_passed ________________\n\nharness = (<function harness.<locals>.make at 0x7fffcebf5300>, PosixPath('/tmp/pytest-of-root/pytest-0/test_gate_off_still_reviews_a_0'))\n\n    def test_gate_off_still_reviews_a_patch_that_passed(harness) -> None:\n        make, run_dir = harness\n        cfg, _ = make([\"pass\"], tester_gate=False)\n        stub = StubBackend(scripts={\"builder\": builder_script(GOLD),\n                                    \"reviewer\": reviewer_script()})\n        final = _run(cfg, stub, run_dir)\n>       assert final[\"status\"] == \"shipped\"\nE       AssertionError: assert 'failed_tests' == 'shipped'\nE         \nE         - shipped\nE         + failed_tests\n\ntests/test_graph.py:298: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_graph.py::test_gate_off_never_retries_even_when_the_reviewer_rejects\nFAILED tests/test_graph.py::test_gate_off_does_not_review_a_patch_the_tests_rejected\nFAILED tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed\n3 failed, 212 passed, 19 skipped in 15.14s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "bbc3e1f1277b50f97423b2bb956d1c6882949449"
+ },
+ {
+  "mid": "preflight-L188-drop_not",
+  "path": "engine/preflight.py",
+  "line": 188,
+  "operator": "drop_not",
+  "before": "    return [c for c in checks if not c.ok and c.fatal]",
+  "after": "    return [c for c in checks if c.ok and c.fatal]",
+  "fail_to_pass": [
+   "tests/test_preflight.py::test_blocking_ignores_warnings",
+   "tests/test_preflight.py::test_gh_is_only_fatal_when_a_pull_request_was_asked_for"
+  ],
+  "issue": "The test suite is failing. 2 test(s) that passed on the previous commit now fail:\n  - tests/test_preflight.py::test_blocking_ignores_warnings\n  - tests/test_preflight.py::test_gh_is_only_fatal_when_a_pull_request_was_asked_for\n\nTest output:\n\n================================\n___________ test_gh_is_only_fatal_when_a_pull_request_was_asked_for ____________\n\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fffcebd4710>\n\n    def test_gh_is_only_fatal_when_a_pull_request_was_asked_for(monkeypatch):\n        \"\"\"Missing gh blocks a --pr run and merely warns otherwise.\n    \n        Written first as `check_gh(needed=False).fatal is False` with no\n        monkeypatching, which passed only because the dev machine happened to be\n        logged OUT of gh. Authenticating it turned the suite red -- the assertion\n        had never exercised the branch it claimed to (rules.md: a green suite\n        proves nothing about paths the fixtures never reach). Both directions are\n        pinned here, with the host's real gh state taken out of it.\n        \"\"\"\n        monkeypatch.setattr(pf.shutil, \"which\", lambda _name: None)   # gh absent\n        not_needed = pf.check_gh(needed=False)\n        needed = pf.check_gh(needed=True)\n        assert not_needed.ok is False and not_needed.fatal is False\n        assert needed.ok is False and needed.fatal is True\n        assert pf.blocking([not_needed]) == []          # warns\n>       assert pf.blocking([needed]) == [needed]        # blocks\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE       AssertionError: assert [] == [Check(name='..., fatal=True)]\nE         \nE         Right contains one more item: Check(name='gh (pull requests)', ok=False, detail='not installed', fix='Install the GitHub CLI (`brew install gh`) and run `gh auth login`. Only needed with --pr.', fatal=True)\nE         Use -v to get more diff\n\ntests/test_preflight.py:101: AssertionError\n________________________ test_blocking_ignores_warnings ________________________\n\n    def test_blocking_ignores_warnings():\n        checks = [\n            pf.Check(\"a\", False, \"broken\", fatal=True),\n            pf.Check(\"b\", False, \"meh\", fatal=False),\n            pf.Check(\"c\", True, \"fine\"),\n        ]\n>       assert [c.name for c in pf.blocking(checks)] == [\"a\"]\nE       AssertionError: assert ['c'] == ['a']\nE         \nE         At index 0 diff: 'c' != 'a'\nE         Use -v to get more diff\n\ntests/test_preflight.py:110: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_preflight.py::test_gh_is_only_fatal_when_a_pull_request_was_asked_for\nFAILED tests/test_preflight.py::test_blocking_ignores_warnings - AssertionErr...\n2 failed, 213 passed, 19 skipped in 15.42s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "b296eca16f4d62c08480a46c1a1405746e022ca1"
+ },
+ {
+  "mid": "detect-L105-le_to_gt",
+  "path": "engine/repo/detect.py",
+  "line": 105,
+  "operator": "le_to_gt",
+  "before": "    return f\"python:3.{minor}-slim\" if 8 <= minor <= 13 else default",
+  "after": "    return f\"python:3.{minor}-slim\" if 8 > minor <= 13 else default",
+  "fail_to_pass": [
+   "tests/test_repo_front_door.py::test_the_interpreter_follows_requires_python"
+  ],
+  "issue": "The test suite is failing. 1 test(s) that passed on the previous commit now fail:\n  - tests/test_repo_front_door.py::test_the_interpreter_follows_requires_python\n\nTest output:\n\n........................................................................ [ 30%]\n........................................................................ [ 61%]\n.................................................F...........sssssssssss [ 92%]\ns..........sssssss                                                       [100%]\n=================================== FAILURES ===================================\n_________________ test_the_interpreter_follows_requires_python _________________\n\ntmp_path = PosixPath('/tmp/pytest-of-root/pytest-0/test_the_interpreter_follows_r0')\n\n    def test_the_interpreter_follows_requires_python(tmp_path):\n        \"\"\"A repo pinning ==3.12.* cannot be installed by 3.11: pip refuses.\n    \n        Combined with a tolerant `|| true` that produced a container with NONE of\n        the project's dependencies, and a suite failing with ModuleNotFoundError\n        -- which reads as a broken repo rather than a wrong image. It cost two\n        wrong diagnoses before anyone looked at the actual error.\n        \"\"\"\n        from engine.repo.detect import python_image\n    \n        _touch(tmp_path, \"pyproject.toml\", '[project]\\nrequires-python = \"==3.12.*\"\\n')\n>       assert python_image(tmp_path) == \"python:3.12-slim\"\nE       AssertionError: assert 'python:3.11-slim' == 'python:3.12-slim'\nE         \nE         - python:3.12-slim\nE         ?           ^\nE         + python:3.11-slim\nE         ?           ^\n\ntests/test_repo_front_door.py:520: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_repo_front_door.py::test_the_interpreter_follows_requires_python\n1 failed, 214 passed, 19 skipped in 15.44s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "63af11dfe1a45732c8decd69db90ecd021cbde14"
+ },
+ {
+  "mid": "front_door-L66-or_to_and",
+  "path": "engine/repo/front_door.py",
+  "line": 66,
+  "operator": "or_to_and",
+  "before": "    m = _URL.match((url or \"\").strip())",
+  "after": "    m = _URL.match((url and \"\").strip())",
+  "fail_to_pass": [
+   "tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[git@github.com:psf/requests.git]",
+   "tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[github.com/psf/requests]",
+   "tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[http://www.github.com/psf/requests/]",
+   "tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[https://github.com/psf/requests.git]",
+   "tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[https://github.com/psf/requests]",
+   "tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[psf/requests]",
+   "tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[www.github.com/psf/requests]"
+  ],
+  "issue": "The test suite is failing. 7 test(s) that passed on the previous commit now fail:\n  - tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[git@github.com:psf/requests.git]\n  - tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[github.com/psf/requests]\n  - tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[http://www.github.com/psf/requests/]\n  - tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[https://github.com/psf/requests.git]\n  - tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[https://github.com/psf/requests]\n  - tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[psf/requests]\n  - tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[www.github.com/psf/requests]\n\nTest output:\n\nttps://github.com/psf/requests.git' -> 'psf/requests'.\"\"\"\n        m = _URL.match((url and \"\").strip())\n        if not m:\n>           raise WorkspaceError(\n                f\"{url!r} is not a GitHub repo URL. Expected github.com/owner/name.\"\n            )\nE           engine.errors.WorkspaceError: 'www.github.com/psf/requests' is not a GitHub repo URL. Expected github.com/owner/name.\n\nengine/repo/front_door.py:68: WorkspaceError\n______________ test_urls_all_resolve_to_owner_name[psf/requests] _______________\n\nurl = 'psf/requests'\n\n    @pytest.mark.parametrize(\"url\", [\n        \"https://github.com/psf/requests\",\n        \"https://github.com/psf/requests.git\",\n        \"http://www.github.com/psf/requests/\",\n        \"git@github.com:psf/requests.git\",\n        \"github.com/psf/requests\",       # what --url's own help text advertises\n        \"www.github.com/psf/requests\",\n        \"psf/requests\",\n    ])\n    def test_urls_all_resolve_to_owner_name(url):\n>       assert parse_repo_url(url) == \"psf/requests\"\n               ^^^^^^^^^^^^^^^^^^^\n\ntests/test_repo_front_door.py:96: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nurl = 'psf/requests'\n\n    def parse_repo_url(url: str) -> str:\n        \"\"\"'https://github.com/psf/requests.git' -> 'psf/requests'.\"\"\"\n        m = _URL.match((url and \"\").strip())\n        if not m:\n>           raise WorkspaceError(\n                f\"{url!r} is not a GitHub repo URL. Expected github.com/owner/name.\"\n            )\nE           engine.errors.WorkspaceError: 'psf/requests' is not a GitHub repo URL. Expected github.com/owner/name.\n\nengine/repo/front_door.py:68: WorkspaceError\n=========================== short test summary info ============================\nFAILED tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[https://github.com/psf/requests]\nFAILED tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[https://github.com/psf/requests.git]\nFAILED tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[http://www.github.com/psf/requests/]\nFAILED tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[git@github.com:psf/requests.git]\nFAILED tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[github.com/psf/requests]\nFAILED tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[www.github.com/psf/requests]\nFAILED tests/test_repo_front_door.py::test_urls_all_resolve_to_owner_name[psf/requests]\n7 failed, 208 passed, 19 skipped in 15.79s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "e7bfee7ae80f1d77dcf326ac3ca609bbb59a83c3"
+ },
+ {
+  "mid": "patch-L111-and_to_or",
+  "path": "engine/repo/patch.py",
+  "line": 111,
+  "operator": "and_to_or",
+  "before": "    if missing and not creating:",
+  "after": "    if missing or not creating:",
+  "fail_to_pass": [
+   "tests/test_graph.py::test_a_bare_hunk_header_is_repaired_and_still_ships",
+   "tests/test_graph.py::test_a_correct_patch_ships_even_when_the_reviewer_keeps_rejecting",
+   "tests/test_graph.py::test_an_unverified_patch_never_ships",
+   "tests/test_graph.py::test_apply_failure_feeds_gits_words_back_to_the_builder",
+   "tests/test_graph.py::test_clean_solve_ships",
+   "tests/test_graph.py::test_correctness_cap_means_one_run_plus_three_retries",
+   "tests/test_graph.py::test_failing_tests_send_the_work_back",
+   "tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed",
+   "tests/test_graph.py::test_rejection_rebuilds_once",
+   "tests/test_graph.py::test_repo_grader_replaces_the_benchmark_one_entirely",
+   "tests/test_graph.py::test_reviewer_gate_off_never_reviews",
+   "tests/test_graph.py::test_tester_gate_off_gets_exactly_one_shot",
+   "tests/test_graph.py::test_unverified_is_retried_like_a_failure",
+   "tests/test_patch.py::test_validate_accepts_a_real_diff",
+   "tests/test_patch.py::test_validate_allows_a_new_file",
+   "tests/test_patch.py::test_validate_rejects_a_diff_with_no_hunks",
+   "tests/test_patch.py::test_validate_rejects_a_malformed_hunk_header"
+  ],
+  "issue": "The test suite is failing. 17 test(s) that passed on the previous commit now fail:\n  - tests/test_graph.py::test_a_bare_hunk_header_is_repaired_and_still_ships\n  - tests/test_graph.py::test_a_correct_patch_ships_even_when_the_reviewer_keeps_rejecting\n  - tests/test_graph.py::test_an_unverified_patch_never_ships\n  - tests/test_graph.py::test_apply_failure_feeds_gits_words_back_to_the_builder\n  - tests/test_graph.py::test_clean_solve_ships\n  - tests/test_graph.py::test_correctness_cap_means_one_run_plus_three_retries\n  - tests/test_graph.py::test_failing_tests_send_the_work_back\n  - tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed\n  - tests/test_graph.py::test_rejection_rebuilds_once\n  - tests/test_graph.py::test_repo_grader_replaces_the_benchmark_one_entirely\n  - tests/test_graph.py::test_reviewer_gate_off_never_reviews\n  - tests/test_graph.py::test_tester_gate_off_gets_exactly_one_shot\n\nTest output:\n\ntext is fed back to the builder verbatim, and it should\n        name the most fundamental error first. A diff aimed at a file that is not\n        there cannot be salvaged by fixing its hunk arithmetic -- reporting the\n        header would send the builder to fix the wrong thing.\n        \"\"\"\n        paths = diff_paths(diff)\n        if not paths:\n            raise PatchError(\"diff names no files (missing 'diff --git' / '+++' headers)\")\n    \n        creating = bool(_NEW_FILE.search(diff))\n        missing = [p for p in paths if not (Path(tree) / p).exists()]\n        if missing or not creating:\n>           raise PatchError(\n                \"diff targets files that do not exist in the checkout: \"\n                + \", \".join(missing[:5])\n                + \". Use the full repo-relative path.\"\n            )\nE           engine.errors.PatchError: diff targets files that do not exist in the checkout: brand_new.py. Use the full repo-relative path.\n\nengine/repo/patch.py:112: PatchError\n=========================== short test summary info ============================\nFAILED tests/test_graph.py::test_clean_solve_ships - AssertionError: assert '...\nFAILED tests/test_graph.py::test_failing_tests_send_the_work_back - Assertion...\nFAILED tests/test_graph.py::test_correctness_cap_means_one_run_plus_three_retries\nFAILED tests/test_graph.py::test_apply_failure_feeds_gits_words_back_to_the_builder\nFAILED tests/test_graph.py::test_rejection_rebuilds_once - AssertionError: as...\nFAILED tests/test_graph.py::test_a_correct_patch_ships_even_when_the_reviewer_keeps_rejecting\nFAILED tests/test_graph.py::test_tester_gate_off_gets_exactly_one_shot - Asse...\nFAILED tests/test_graph.py::test_reviewer_gate_off_never_reviews - AssertionE...\nFAILED tests/test_graph.py::test_a_bare_hunk_header_is_repaired_and_still_ships\nFAILED tests/test_graph.py::test_gate_off_still_reviews_a_patch_that_passed\nFAILED tests/test_graph.py::test_an_unverified_patch_never_ships - AssertionE...\nFAILED tests/test_graph.py::test_unverified_is_retried_like_a_failure - Asser...\nFAILED tests/test_graph.py::test_repo_grader_replaces_the_benchmark_one_entirely\nFAILED tests/test_patch.py::test_validate_accepts_a_real_diff - engine.errors...\nFAILED tests/test_patch.py::test_validate_rejects_a_diff_with_no_hunks - Asse...\nFAILED tests/test_patch.py::test_validate_rejects_a_malformed_hunk_header - A...\nFAILED tests/test_patch.py::test_validate_allows_a_new_file - engine.errors.P...\n17 failed, 198 passed, 19 skipped in 14.23s\n\n\nFind the cause and fix it. Do not change or delete the tests.",
+  "commit": "b6dbdc61bf7f33fa93c659129e427edae2610226"
+ }
+]

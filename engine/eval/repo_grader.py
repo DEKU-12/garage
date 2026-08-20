@@ -142,11 +142,23 @@ def _sh(argv_list: list) -> str:
     return " && ".join(parts)
 
 
-def _docker(args: list[str], timeout_s: int, exec_=subprocess.run) -> tuple[int, str]:
+def _docker(args: list[str], timeout_s: int, exec_=subprocess.run,
+            kill: str = "") -> tuple[int, str]:
+    """Run one docker command.
+
+    `kill` is the container name to force-remove if this times out. Without it
+    a timeout kills only the docker CLIENT: `--rm` cleans up on normal exit,
+    so the container itself keeps running and keeps burning CPU. During one
+    generation run those orphans accumulated until every later candidate was
+    competing with them, and the whole thing crawled to a stop.
+    """
     try:
         proc = exec_(["docker", *args], capture_output=True, text=True,
                      timeout=timeout_s, check=False)
     except subprocess.TimeoutExpired as exc:
+        if kill:
+            exec_(["docker", "rm", "-f", kill], capture_output=True,
+                  text=True, timeout=60, check=False)
         raise GradingInfraError(f"docker timed out after {timeout_s}s") from exc
     except FileNotFoundError as exc:
         raise GradingInfraError("docker not found -- repo mode requires Docker") from exc
@@ -164,13 +176,18 @@ def docker_runner(image: str, tree: Path, argv_list: list[list[str]],
     the network, running somebody else's test suite does not -- and the test
     run is precisely the step that executes untrusted code.
     """
-    mount = ["-v", f"{Path(tree).resolve()}:/repo", "-w", "/repo",
-             "--platform", "linux/amd64"]
+    # No --platform. SWE-bench images are x86-only and are graded elsewhere;
+    # these are ordinary python:3.x images with native builds. Forcing amd64
+    # ran every container under Rosetta on Apple Silicon, which is why a suite
+    # taking 13s on the host still took 14s in a container doing less work.
+    mount = ["-v", f"{Path(tree).resolve()}:/repo", "-w", "/repo"]
     setup, test = argv_list[:-1], argv_list[-1]
 
     if not setup:                       # nothing to install: straight to jail
-        return _docker(["run", "--rm", "--network", "none", *mount,
-                        image, "sh", "-lc", _sh([test])], timeout_s, exec_)
+        name = f"garage-run-{uuid4().hex[:12]}"
+        return _docker(["run", "--rm", "--name", name, "--network", "none",
+                        *mount, image, "sh", "-lc", _sh([test])],
+                       timeout_s, exec_, kill=name)
 
     token = uuid4().hex[:12]
     cid, tag = f"garage-setup-{token}", f"garage-prepared:{token}"
@@ -242,8 +259,10 @@ class CachedImage:
                 _docker(["rm", "-f", cid], 120, self.exec_)
 
         img = self.tag if self.built else image
-        return _docker(["run", "--rm", "--network", "none", *mount,
-                        img, "sh", "-lc", _sh([test])], timeout_s, self.exec_)
+        run_name = f"garage-run-{uuid4().hex[:12]}"
+        return _docker(["run", "--rm", "--name", run_name, "--network", "none",
+                        *mount, img, "sh", "-lc", _sh([test])],
+                       timeout_s, self.exec_, kill=run_name)
 
     def close(self) -> None:
         if self.built:
