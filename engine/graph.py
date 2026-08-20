@@ -342,6 +342,8 @@ def build_graph(
             attempt["review_verdict"] = "accept"
             attempt["review_reason"] = "reviewer unavailable"
             attempts[-1] = attempt
+            emit("agent_done", "reviewer", state["task_id"],
+                 attempt=attempt["n"], outcome="reviewer_unavailable")
             return {"attempts": attempts}
 
         spent = state.get("spend_usd", 0.0) + _bill(

@@ -159,22 +159,45 @@ def test_no_agent_is_left_activated_forever(tmp_path):
     assert all(v == 0 for v in counts.values()), f"unbalanced: {counts}"
 
 
-def test_the_graph_closes_every_builder_exit():
-    """Source-level guard: each `return` in builder_node must be preceded by an
-    agent_done. Cheaper than a real run, and it fails when a new early exit is
-    added without one."""
+def test_every_agent_node_closes_every_exit():
+    """Source-level guard over all the agent nodes.
+
+    Written for builder_node first, which is how reviewer_node's "reviewer
+    unavailable" path survived the same fix: it returns an accept without ever
+    saying the reviewer stopped. A guard covering one node teaches you nothing
+    about the others.
+
+    The rule is about ORDER, not proximity. A return before the node has
+    emitted agent_activated is fine -- the tester's "nothing to grade" exit
+    never starts, so it has nothing to close. Only returns AFTER an activation
+    need a completion between the two. The first version of this test flagged
+    both of those as failures and was measuring its own lookback window.
+    """
     import inspect
     import re
 
     from engine import graph
 
     src = inspect.getsource(graph.build_graph)
-    body = re.search(r"def builder_node\(.*?\n(.*?)\n    def tester_node", src, re.S)
-    assert body, "builder_node not found"
-    text = body.group(1)
-    # every return that yields attempts should have closed the agent first
-    for match in re.finditer(r"\n(\s+)return (update|\{[^\n]*attempts)", text):
-        before = text[max(0, match.start() - 400):match.start()]
-        assert 'emit("agent_done", "builder"' in before, (
-            "a builder_node exit returns without emitting agent_done:\n"
-            + text[max(0, match.start() - 200):match.start() + 60])
+    nodes = {
+        "builder_node": ("builder", "tester_node"),
+        "tester_node": ("tester", "reviewer_node"),
+        "reviewer_node": ("reviewer", "ship_node"),
+    }
+    problems = []
+    for node, (agent, next_node) in nodes.items():
+        body = re.search(rf"def {node}\(.*?\n(.*?)\n    def {next_node}", src, re.S)
+        assert body, f"{node} not found"
+        text = body.group(1)
+        act = text.find(f'emit("agent_activated", "{agent}"')
+        if act < 0:
+            continue                       # node never claims to start
+        for m in re.finditer(r"\n\s+return (update|\{[^\n]*attempts)", text):
+            if m.start() < act:
+                continue                   # returned before starting: nothing owed
+            if f'emit("agent_done", "{agent}"' not in text[act:m.start()]:
+                problems.append(
+                    f"{node}: exit at offset {m.start()} returns after "
+                    f"agent_activated without any agent_done:\n"
+                    + text[max(act, m.start() - 160):m.start() + 40])
+    assert not problems, "\n\n".join(problems)
