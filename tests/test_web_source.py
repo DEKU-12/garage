@@ -121,3 +121,18 @@ def test_the_real_event_log_survives_translation():
     """)
     assert out["malformed"] == 0
     assert set(out["workers"]) <= {"dholu", "bheem", "kalia", "raju", "chutki", "bholu"}
+
+
+def test_a_stage_that_ended_badly_says_so():
+    """Three builder attempts in a row all rendered as `build done`, when two
+    produced an unusable patch. The engine records why in `outcome`; the
+    translator was dropping it, so the feed showed failure and success
+    identically."""
+    out = run_js("""
+      const [ok] = normalize({type:"agent_done", agent:"builder", task_id:"t",
+        ts:"2026-01-01T00:00:00Z", payload:{attempt:3}});
+      const [bad] = normalize({type:"agent_done", agent:"builder", task_id:"t",
+        ts:"2026-01-01T00:00:00Z", payload:{attempt:1, outcome:"patch_rejected"}});
+      console.log(JSON.stringify({ok: ok.outcome, bad: bad.outcome}));
+    """)
+    assert out["ok"] == "" and out["bad"] == "patch_rejected"

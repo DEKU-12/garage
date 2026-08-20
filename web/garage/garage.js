@@ -923,7 +923,8 @@ function wireHover() {
     const k = agentAt(stagePoint(ev));
     if (!k) { tip.classList.remove("on"); app.canvas.style.cursor = ""; return; }
     const e = lastEventFor(k);
-    const kv = e ? [e.action, e.status, e.result].filter(Boolean).join(" · ") : "";
+    const kv = e ? [e.action, e.status, e.result, e.outcome]
+      .filter(Boolean).join(" · ") : "";
     tip.innerHTML =
       `<b>${shown(k)}</b> <span class="tr">${CHARS[k].role}</span>` +
       `<div class="td">${ROLES[k]}</div>` +
@@ -1030,10 +1031,12 @@ function paintHud() {
 }
 
 function feedRow(e) {
-  const cls = isGreen(e) ? "pass" : isRed(e) ? "fail" : "";
+  const cls = isGreen(e) ? "pass" : (isRed(e) || e.outcome) ? "fail" : "";
   const who = e.worker ? shown(roleOf(e.worker)) : "garage";
   const what = [e.action, e.status].filter(Boolean).join(" ");
-  const kv = [e.job ? `job=${e.job}` : "", e.result ? `result=${e.result}` : ""]
+  const kv = [e.job ? `job=${e.job}` : "",
+              e.result ? `result=${e.result}` : "",
+              e.outcome ? `outcome=${e.outcome}` : ""]
     .filter(Boolean).join(" ");
   const hasArt = !!((e.raw || {}).payload || {}).artifact;
   const row = document.createElement("div");

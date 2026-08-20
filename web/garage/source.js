@@ -39,6 +39,9 @@ function ev(worker, status, extra = {}) {
     action: extra.action ?? (worker ? ACTION_OF[worker] : null),
     job: extra.job ?? null,
     result: extra.result ?? null,
+    // Why a stage ended, when it ended badly: patch_rejected, apply_failed,
+    // model_error, budget_exceeded, grading_infra_error, reviewer_unavailable.
+    outcome: extra.outcome ?? "",
     ts: extra.ts ?? Date.now(),
     raw: extra.raw ?? null,
   };
@@ -61,7 +64,11 @@ export function normalize(e) {
     case "agent_activated":
       return worker ? [ev(worker, "start", at)] : [];
     case "agent_done":
-      return worker ? [ev(worker, "done", at)] : [];
+      // Carry WHY they stopped. Three builder attempts in a row all read
+      // "build done" otherwise, when two of them produced an unusable patch --
+      // a feed that renders failure identically to success is the one thing
+      // this project cannot afford.
+      return worker ? [ev(worker, "done", { ...at, outcome: p.outcome || "" })] : [];
     case "gate_verdict":
       return worker ? [ev(worker, "result", { ...at, result: p.verdict })] : [];
     case "shipped":
