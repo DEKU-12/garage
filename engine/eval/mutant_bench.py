@@ -247,3 +247,43 @@ def restored_original(run_dir, task_id: str, before: str, after: str) -> bool | 
     removed = [l[1:].strip() for l in diff.splitlines()
                if l.startswith("-") and not l.startswith("---")]
     return before.strip() in added and after.strip() in removed
+
+
+def patch_stats(run_dir, task_id: str) -> tuple[int, int, int]:
+    """(files, added, removed) for the final patch. E3's whole claim is that
+    the reviewer produces SMALLER patches, and nothing was recording size."""
+    patches = sorted(Path(run_dir).glob(f"tasks/{task_id}/attempts/*/patch.diff"))
+    if not patches:
+        return (0, 0, 0)
+    diff = patches[-1].read_text(encoding="utf-8")
+    files = sum(1 for l in diff.splitlines() if l.startswith("diff --git "))
+    added = sum(1 for l in diff.splitlines()
+                if l.startswith("+") and not l.startswith("+++"))
+    removed = sum(1 for l in diff.splitlines()
+                  if l.startswith("-") and not l.startswith("---"))
+    return (files, added, removed)
+
+
+def review_stats(run_dir, task_id: str) -> tuple[str, str, bool]:
+    """(verdict, rung, any_parse_warning) from the review gate's own events.
+
+    `parse_warning` matters more than it looks: a malformed review is treated
+    as ACCEPT (TAD §3.3), so a model that gets the format wrong silently turns
+    the gate OFF. Run E3 on a weaker model without checking this and it can
+    report "the reviewer does not help" when the reviewer was never heard.
+    """
+    log = Path(run_dir) / "events.jsonl"
+    if not log.is_file():
+        return ("", "", False)
+    verdict, rung, warned = "", "", False
+    for line in log.open(encoding="utf-8"):
+        e = json.loads(line)
+        if e.get("task_id") != task_id or e.get("type") != "gate_verdict":
+            continue
+        p = e.get("payload") or {}
+        if p.get("gate") != "review":
+            continue
+        verdict = p.get("verdict", "")
+        rung = str(p.get("rung") or "")
+        warned = warned or bool(p.get("parse_warning"))
+    return (verdict, rung, warned)

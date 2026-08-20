@@ -738,7 +738,8 @@ def cmd_run_mutants(args: argparse.Namespace) -> int:
 
     from engine.batch import run_spend_usd
     from engine.graph import WORKSPACES
-    from engine.eval.mutant_bench import (load, mutant_grader, restored_original,
+    from engine.eval.mutant_bench import (load, mutant_grader, patch_stats,
+                                          restored_original, review_stats,
                                           scout_found_it)
     from engine.eval.repo_grader import CachedImage
     from engine.repo.front_door import open_repo
@@ -821,6 +822,17 @@ def cmd_run_mutants(args: argparse.Namespace) -> int:
                 # restored_original's docstring for the case that proved it
                 "restored_line": restored_original(run_dir, mt.mid,
                                                    mt.before, mt.after),
+            })
+            files, added, removed = patch_stats(run_dir, mt.mid)
+            verdict, rung, warned = review_stats(run_dir, mt.mid)
+            extra[-1].update({
+                # E3 measures solve % AND patch size; size was not recorded
+                "patch_files": files, "patch_added": added,
+                "patch_removed": removed,
+                "review_verdict": verdict, "review_rung": rung,
+                # a malformed review counts as ACCEPT, so this is how you tell
+                # "the gate did not help" from "the gate was never heard"
+                "review_parse_warning": warned,
             })
     finally:
         cache.close()
