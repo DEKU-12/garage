@@ -709,6 +709,119 @@ def cmd_mutants(args: argparse.Namespace) -> int:
     return 0 if kept else 1
 
 
+def cmd_run_mutants(args: argparse.Namespace) -> int:
+    """Repair a frozen set of bugs that have no published fix.
+
+    The point of the whole exercise: every SWE-bench number is threatened by
+    memorisation (10 of 13 solved tasks in E1 reproduced the human patch
+    verbatim). These bugs were written by a script, so there is nothing to
+    recall -- the model gets failing test output and has to work it out.
+    """
+    import hashlib
+
+    from engine.graph import WORKSPACES
+    from engine.eval.mutant_bench import load, mutant_grader, scout_found_it
+    from engine.eval.repo_grader import CachedImage
+    from engine.repo.front_door import open_repo
+
+    tasks = load(REPO_ROOT / args.set)
+    if not tasks:
+        print(f"no mutants in {args.set}")
+        return 1
+    missing = [t.mid for t in tasks if not t.commit]
+    if missing:
+        print(f"{len(missing)} mutant(s) have no commit -- regenerate the set")
+        return 2
+
+    base = open_repo(args.url, "mutant repair", WORKSPACES)
+    run_id = args.run_id or f"M_{datetime.now(timezone.utc):%Y%m%d_%H%M%S}"
+    run_dir = REPO_ROOT / "runs" / run_id
+    cfg = RunConfig(
+        run_id=run_id,
+        task_ids=[t.mid for t in tasks],
+        model_for_role={r: args.model for r in
+                        ("orchestrator", "scout", "builder", "tester", "reviewer", "scribe")},
+        scout=not args.no_scout,
+        reviewer_gate=not args.no_reviewer_gate,
+        prompt_hashes=prompt_hashes(PROMPTS),
+    )
+    cfg.freeze_to(run_dir / "config.json")
+    events = EventLog.for_run(run_dir, run_id)
+    events.emit("run_started", agent="orchestrator", model=args.model,
+                tasks=len(tasks),
+                gates={"tester": cfg.tester_gate, "reviewer": cfg.reviewer_gate,
+                       "scout": cfg.scout})
+
+    if cfg.is_stub_run:
+        print("=" * 68)
+        print("STUB RUN -- canned responses. NOT A RESULT.")
+        print("=" * 68)
+
+    print(f"\n{len(tasks)} mutants of {base.repo}   model={args.model}   run={run_id}")
+    key = hashlib.sha1(f"mut|{base.repo}@{base.base_commit}".encode()).hexdigest()[:12]
+    cache = CachedImage(key)
+    rows, extra = [], []
+    spent = 0.0
+    try:
+        for i, mt in enumerate(tasks, 1):
+            if args.max_usd and spent >= args.max_usd:
+                print(f"\nbudget reached (${spent:.2f}) -- stopping with "
+                      f"{len(rows)} of {len(tasks)} done")
+                break
+            print(f"\n--- {i}/{len(tasks)}  {mt.mid} "
+                  f"({mt.path}:{mt.line}, breaks {len(mt.fail_to_pass)}) ---")
+            task = replace(base, task_id=mt.mid, issue=mt.issue,
+                           base_commit=mt.commit,
+                           fail_to_pass=tuple(mt.fail_to_pass))
+            grader = mutant_grader(task, WORKSPACES, cache)
+            stub = _repo_stub(args) if cfg.is_stub_run else None
+            try:
+                row = run_one(task, cfg, run_dir, stub, args.max_attempts,
+                              events=events, grader=grader)
+            except WorkspaceError as exc:
+                print(f"  WORKSPACE FAILURE: {exc}")
+                continue
+            rows.append(result_row(row))
+            spent = sum(float(r.get("spend_usd") or 0) for r in rows)
+            extra.append({
+                "mid": mt.mid, "path": mt.path, "line": mt.line,
+                "operator": mt.operator, "broke": len(mt.fail_to_pass),
+                "solved": row.get("status") == "shipped",
+                "attempts": row.get("attempts"),
+                # measured, not inferred: we know exactly which file we broke
+                "scout_found_file": scout_found_it(run_dir, mt.mid, mt.path),
+            })
+    finally:
+        cache.close()
+
+    with (run_dir / "results.csv").open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=RESULT_FIELDS)
+        w.writeheader()
+        w.writerows(rows)
+    if extra:
+        with (run_dir / "mutants.csv").open("w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=list(extra[0]))
+            w.writeheader()
+            w.writerows(extra)
+
+    solved = sum(1 for e in extra if e["solved"])
+    print("\n" + "=" * 68)
+    print(f"{solved}/{len(extra)} mutants repaired"
+          f"   ${spent:.2f}   run={run_id}")
+    seen = [e for e in extra if e["scout_found_file"] is not None]
+    if seen:
+        hit = [e for e in seen if e["scout_found_file"]]
+        print(f"scout found the broken file in {len(hit)}/{len(seen)}")
+        if hit and len(hit) != len(seen):
+            sh = sum(1 for e in hit if e["solved"]) / len(hit) * 100
+            miss = [e for e in seen if not e["scout_found_file"]]
+            sm = sum(1 for e in miss if e["solved"]) / len(miss) * 100
+            print(f"  solved when found: {sh:.0f}%    when missed: {sm:.0f}%")
+    events.emit("run_finished", agent="orchestrator", task_arms=len(extra))
+    print(f"artifacts: runs/{run_id}/")
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     """Turn run logs into the tables. The only source of reported numbers."""
     dirs = [Path(d) for d in args.run_dirs]
@@ -832,6 +945,20 @@ def main(argv: list[str] | None = None) -> int:
     mut.add_argument("--seed", type=int, default=1, help="same seed, same set")
     mut.add_argument("--out", default="experiments/mutants/set.json")
     mut.set_defaults(func=cmd_mutants)
+
+    rm = sub.add_parser("run-mutants", help="repair a frozen set of injected bugs")
+    rm.add_argument("--set", required=True, help="a manifest from `mutants`")
+    rm.add_argument("--url", required=True, help="the repo the set was made from")
+    rm.add_argument("--model", default=STUB_MODEL)
+    rm.add_argument("--run-id", default=None)
+    rm.add_argument("--max-attempts", type=int, default=None)
+    rm.add_argument("--max-usd", type=float, default=5.0,
+                    help="hard ceiling for the whole set (default: $5)")
+    rm.add_argument("--no-scout", action="store_true", help="the OFF arm of E2")
+    rm.add_argument("--no-reviewer-gate", action="store_true", help="the OFF arm of E3")
+    rm.add_argument("--stub-failures", default="")
+    rm.add_argument("--stub-reject", action="store_true")
+    rm.set_defaults(func=cmd_run_mutants)
 
     doc = sub.add_parser("doctor", help="check this machine can do a real run")
     doc.add_argument("--model", default="claude-sonnet-5",

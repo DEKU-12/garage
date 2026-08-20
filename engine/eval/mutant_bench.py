@@ -27,7 +27,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from engine.errors import WorkspaceError
+from engine.errors import GradingInfraError, WorkspaceError
 from engine.eval.mutate import Mutant
 from engine.eval.repo_grader import SuiteRun, run_suite
 
@@ -144,3 +144,67 @@ def commit_mutant(mutant: Mutant, repo: str, base: str, root) -> str:
         # A ref, so gc cannot collect the only copy of a task we are measuring.
         _git(["update-ref", f"refs/mutants/{mutant.mid}", sha], cwd=tree)
     return sha
+
+
+def mutant_grader(task, root, runner, log=print, progress=None):
+    """Grade a mutant repair. Simpler than repo mode, and stricter.
+
+    Repo mode has to manufacture its own evidence with a witness test, because
+    nobody knows what "fixed" means for an arbitrary issue. A mutant needs no
+    such thing: the suite was GREEN before the mutation (a red baseline is
+    refused outright), so "fixed" means green again. Nothing else counts, and
+    a patch that repairs the bug while breaking something else fails on the
+    same check -- no separate regression pass needed.
+
+    Note what this does NOT check: whether the model restored the original
+    line. A different fix that makes the suite green is a pass, which is the
+    honest position -- the tests are the specification. The original line is
+    kept in the manifest so the two can be compared afterwards.
+    """
+    import time as _time
+
+    from engine.eval.repo_grader import RepoGrade, run_suite
+    from engine.repo.patch import apply_patch
+    from engine.repo.workspace import attempt_worktree
+
+    def grade(state, attempt, run_dir):
+        started = _time.monotonic()
+        if progress:
+            progress("patched")
+        n = int(attempt.get("n", 1))
+        with attempt_worktree(task.repo, state["base_commit"], state["task_id"],
+                              n * 10 + 1, root) as tree:
+            applied = apply_patch(attempt.get("patch", ""), tree)
+            if not applied.applied:
+                raise GradingInfraError(
+                    f"could not re-apply for grading: {applied.stderr[-300:]}")
+            after = run_suite(tree, task.suite, runner)
+
+        wall = int((_time.monotonic() - started) * 1000)
+        tail = after.output[-4000:]
+        if not after.reported:
+            return RepoGrade("fail", False, "suite_broken", tail, wall,
+                             regressions=["<suite did not run>"])
+        if after.failures:
+            return RepoGrade("fail", False, "still_failing", tail, wall,
+                             regressions=sorted(after.failures)[:10])
+        return RepoGrade("pass", True, "", tail, wall)
+
+    grade.close = getattr(runner, "close", lambda: None)
+    return grade
+
+
+def scout_found_it(run_dir, task_id: str, path: str) -> bool | None:
+    """Did the context pack contain the file that was actually broken?
+
+    On a mutant this is a direct measurement rather than the inference a gold
+    patch forces: we know exactly which file we broke. None when no pack was
+    written (the scout was off).
+    """
+    import re
+
+    pack = Path(run_dir) / "tasks" / task_id / "context_pack.md"
+    if not pack.is_file():
+        return None
+    files = set(re.findall(r"^--- (\S+) \(lines", pack.read_text(encoding="utf-8"), re.M))
+    return path in files
