@@ -53,8 +53,7 @@ all three laws in `rules.md` §0, and `rules.md` §1–§6 in full.
 | 4 — the garage | ✅ | Pixi scene driven only by events |
 | 5 — replay scrubber | ✅ | tape, fold-to-any-moment, verdict notches, artifact panel |
 | 6 — repo front door | ✅ | **a real model repaired a real repo and opened a PR** |
-| 6 — repo front door | 🟡 | 3 verdicts proven vs real Docker; no real-model repair yet |
-| 6 — branch / PR creation | 🟡 | branch+commit tested; push/PR never executed |
+| 6 — branch / PR creation | ✅ | human approves each write; DEKU-12/NL2SQL#2 |
 | experiments E2/E3/E4 | ❌ | caps now fixed and ready |
 
 **162 tests, all green, all offline** (no network, no Docker, no API key).
