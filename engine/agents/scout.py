@@ -74,6 +74,10 @@ class ContextEntry:
     source: str
 
 
+# Above any evidence score: a cited file outranks a guessed one.
+_CITED_SCORE = 1e9
+
+
 def extract_terms(issue: str, limit: int = MAX_TERMS) -> list[str]:
     """Identifiers from the issue, most specific first.
 
@@ -178,6 +182,54 @@ def _rendered_cost(path: str, start: int, end: int, why: str, source: str) -> in
     return (len(source) + len(envelope)) // CHARS_PER_TOKEN
 
 
+# A traceback names the file. A failing test's name usually names it too.
+# Neither signal was used: extract_terms turns "engine/events.py:111" into
+# ordinary words and ranks them by rarity across the repo, so the one place
+# the answer was written down competed with every other mention of "events".
+_PATH_IN_TEXT = re.compile(r"([\w./-]+\.py)(?::(\d+))?")
+_TEST_FILE = re.compile(r"(?:^|/)test_([\w]+)\.py")
+
+
+def cited_paths(issue: str, tree: Path) -> list[tuple[str, int | None]]:
+    """Files the failing output points at, in the order it points at them.
+
+    Two signals, both free:
+
+      * a path in a traceback -- `engine/events.py:111` -- which is the file
+        that actually raised, and usually the file to fix.
+      * a failing test's name -- `tests/test_config.py` implies `config.py`
+        somewhere in the tree. Convention, but a strong one: every file this
+        missed on the garage set had a same-named test.
+
+    Tests themselves are never cited: the fix does not belong in them, and
+    offering them invites a patch that edits the test instead.
+    """
+    out: list[tuple[str, int | None]] = []
+    seen: set[str] = set()
+
+    def add(rel: str, line: int | None) -> None:
+        if rel in seen or is_test_path(rel) or not (Path(tree) / rel).is_file():
+            return
+        seen.add(rel)
+        out.append((rel, line))
+
+    for m in _PATH_IN_TEXT.finditer(issue):
+        add(m.group(1).lstrip("./"), int(m.group(2)) if m.group(2) else None)
+
+    # tests/test_config.py -> **/config.py
+    for m in _TEST_FILE.finditer(issue):
+        stem = m.group(1)
+        for cand in sorted(Path(tree).rglob(f"{stem}.py")):
+            add(str(cand.relative_to(tree)), None)
+    return out
+
+
+def is_test_path(rel: str) -> bool:
+    name = Path(rel).name
+    return (name.startswith("test_") or name.endswith("_test.py")
+            or name == "conftest.py" or "tests" in Path(rel).parts)
+
+
 def build_context_pack(
     issue: str, tree: Path, token_budget: int, max_files: int = MAX_FILES
 ) -> list[ContextEntry]:
@@ -189,10 +241,11 @@ def build_context_pack(
     the class being fixed ends up cut from its own context pack.
     """
     terms = extract_terms(issue)
-    if not terms:
+    cited = cited_paths(issue, tree)
+    if not terms and not cited:
         return []
 
-    files = _evidence(terms, tree)
+    files = _evidence(terms, tree) if terms else {}
     ranked = sorted(files.items(), key=lambda kv: kv[1]["score"], reverse=True)
 
     candidates: list[tuple[float, str, int, int, str, list[str]]] = []
@@ -202,6 +255,19 @@ def build_context_pack(
         for start, end, what in _spans_for(symbols, lines):
             score = sum(w for line, w in entry["hits"].items() if start <= line <= end)
             candidates.append((score, path, start, end, what, entry["terms"]))
+
+    # Cited files go to the front, ahead of everything ranked by evidence. A
+    # file the traceback named is not a guess.
+    for rank, (rel, line) in enumerate(cited):
+        symbols = outline_file(tree, rel)
+        spans = _spans_for(symbols, [line]) if line else _spans_for(symbols, [])
+        if not spans:
+            spans = [(1, 60, "cited by the failing output")]
+        why = f"named at line {line} in the failing output" if line else \
+              "matches the name of a failing test"
+        for start, end, what in spans[:2]:
+            candidates.append((_CITED_SCORE - rank, rel, start, end,
+                               what or why, ["<cited>"]))
 
     candidates.sort(key=lambda c: c[0], reverse=True)
 

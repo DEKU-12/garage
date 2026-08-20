@@ -136,3 +136,65 @@ def test_render_states_that_paths_and_lines_are_real(repo: Path) -> None:
 
 def test_render_of_an_empty_pack_is_empty() -> None:
     assert render_pack([]) == ""
+
+
+# ------------------------------------------- the answer written in the input
+
+def _tree(tmp_path, **files):
+    for rel, text in files.items():
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text)
+    return tmp_path
+
+
+def test_a_path_in_a_traceback_is_used(tmp_path):
+    """Half the garage mutants named the broken file in the failing output,
+    and Scout ignored it: extract_terms turned `engine/events.py:111` into
+    ordinary words and ranked them by rarity against the whole repo."""
+    from engine.agents.scout import cited_paths
+
+    _tree(tmp_path, **{"engine/events.py": "def emit():\n    pass\n"})
+    got = cited_paths('  File "engine/events.py", line 111, in emit\n', tmp_path)
+    assert ("engine/events.py", 111) in got
+
+
+def test_a_failing_tests_name_points_at_its_module(tmp_path):
+    """tests/test_config.py implies config.py. Convention, but every file
+    Scout missed on the garage set had a same-named test."""
+    from engine.agents.scout import cited_paths
+
+    _tree(tmp_path, **{"engine/config.py": "X = 1\n",
+                       "tests/test_config.py": "def test_x(): pass\n"})
+    got = [p for p, _ in cited_paths("FAILED tests/test_config.py::test_x", tmp_path)]
+    assert "engine/config.py" in got
+
+
+def test_tests_are_never_cited(tmp_path):
+    """Offering the test file invites a patch that edits the test."""
+    from engine.agents.scout import cited_paths
+
+    _tree(tmp_path, **{"tests/test_config.py": "def test_x(): pass\n",
+                       "engine/config.py": "X = 1\n"})
+    got = [p for p, _ in cited_paths("FAILED tests/test_config.py::test_x", tmp_path)]
+    assert "tests/test_config.py" not in got
+
+
+def test_a_cited_file_that_does_not_exist_is_ignored(tmp_path):
+    from engine.agents.scout import cited_paths
+
+    _tree(tmp_path, **{"real.py": "X = 1\n"})
+    assert cited_paths("File \"imaginary/gone.py\", line 3", tmp_path) == []
+
+
+def test_the_cited_file_reaches_the_pack(tmp_path):
+    """Ranked above everything scored by evidence: a file the traceback named
+    is not a guess."""
+    from engine.agents.scout import build_context_pack
+
+    _tree(tmp_path,
+          **{"engine/events.py": "def emit(kind):\n    return kind\n",
+             "noise.py": "\n".join(f"# emit emit emit {i}" for i in range(200))})
+    pack = build_context_pack('File "engine/events.py", line 2, in emit',
+                              tmp_path, token_budget=6000)
+    assert "engine/events.py" in {e.file for e in pack}
