@@ -32,6 +32,9 @@ from engine.batch import (
     select_tasks,
 )
 from engine.errors import QuotaExhausted
+# qualified: engine.report.aggregate also exports render(), and a bare
+# import of both silently shadows one of them
+from engine import preflight as pf
 from engine.events import EventLog
 from engine.graph import build_graph
 from engine.report.aggregate import common_tasks, gate_lift, render, summarize
@@ -190,6 +193,17 @@ def cmd_run_one(args: argparse.Namespace) -> int:
                 model=args.model, tasks=1,
                 gates={"tester": cfg.tester_gate, "reviewer": cfg.reviewer_gate,
                        "scout": cfg.scout})
+
+    if not cfg.is_stub_run and not args.skip_preflight:
+        # Before the 300MB clone and the Docker pull, not after: a typo in a
+        # key should cost two seconds, not three minutes.
+        checks = pf.preflight(args.model, want_pr=getattr(args, "pr", False))
+        bad = pf.blocking(checks)
+        if bad:
+            print("\ncannot start this run:\n")
+            print(pf.render(checks))
+            print("\nFix the above, or run offline with --model stub.")
+            return 4
 
     stub = None
     if cfg.is_stub_run:
@@ -375,6 +389,22 @@ Put the test where this project already keeps its tests.
 """
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Can this machine do a real run? Answer before it costs anything."""
+    print(f"\nchecking for a run with model={args.model}\n")
+    checks = pf.preflight(args.model, want_pr=args.pr,
+                          need_docker=not args.no_docker, live=not args.offline)
+    print(pf.render(checks))
+    bad = pf.blocking(checks)
+    print()
+    if bad:
+        print(f"{len(bad)} thing(s) to fix before a real run. "
+              "Everything works offline right now with --model stub.")
+        return 1
+    print("ready. Nothing above spent more than a single token.")
+    return 0
+
+
 def _repo_stub(args: argparse.Namespace) -> StubBackend:
     """Canned responses for repo mode.
 
@@ -396,8 +426,26 @@ def _repo_stub(args: argparse.Namespace) -> StubBackend:
                                 "reviewer": reviewer_script(before=reviewer_before)})
 
 
+def _preflight_or_stop(args: argparse.Namespace, *, need_docker: bool = True) -> int:
+    """0 to carry on. Runs before any clone, pull or model call."""
+    if args.model == STUB_MODEL or getattr(args, "skip_preflight", False):
+        return 0
+    checks = pf.preflight(args.model, want_pr=getattr(args, "pr", False),
+                          need_docker=need_docker)
+    bad = pf.blocking(checks)
+    if not bad:
+        return 0
+    print("\ncannot start this run:\n")
+    print(pf.render(checks))
+    print("\nFix the above, or run offline with --model stub.")
+    return 4
+
+
 def cmd_run_repo(args: argparse.Namespace) -> int:
     """The repo front door: point at a GitHub URL instead of a benchmark id."""
+    if (stop := _preflight_or_stop(args)):
+        return stop
+
     from engine.eval.repo_grader import attempt_grader
     from engine.graph import WORKSPACES
     from engine.repo import ship as shipping
@@ -516,8 +564,9 @@ def _ship(task, run_dir: Path, verdict: str, row: dict, args, shipping) -> None:
     with attempt_worktree(task.repo, task.base_commit, task.task_id,
                           9000 + attempt_n, WORKSPACES, keep=True) as tree:
         applied = apply_patch(patch, tree)
-        if not applied.ok:
-            print(f"\nno branch: the patch would not re-apply ({applied.error})")
+        if not applied.applied:
+            print(f"\nno branch: the patch would not re-apply "
+                  f"({applied.stderr[-200:]})")
             return
         res = shipping.commit_patch(tree, branch, task.default_branch, title)
         print(f"\nbranch {branch}")
@@ -565,7 +614,11 @@ def cmd_report(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     # rules.md §1: .env at project root, override=True. A key already in
     # the environment still works -- load_dotenv is a no-op without a file.
-    load_dotenv(REPO_ROOT / ".env", override=True)
+    # override=False: a variable you exported for THIS command wins over the
+    # file. The other way round means `ANTHROPIC_API_KEY=... garage run-repo`
+    # silently does nothing, which is both surprising and a way to think you
+    # are testing one key while spending on another.
+    load_dotenv(REPO_ROOT / ".env", override=False)
     parser = argparse.ArgumentParser(prog="garage")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -586,6 +639,8 @@ def main(argv: list[str] | None = None) -> int:
                      help="stub only: comma list of failures to inject before "
                           "the fix, from prose,malformed,empty -- exercises the "
                           "retry loop offline")
+    one.add_argument("--skip-preflight", action="store_true",
+                     help="do not check key/Docker/git before starting")
     one.set_defaults(func=cmd_run_one)
 
     batch = sub.add_parser("run-batch",
@@ -628,6 +683,8 @@ def main(argv: list[str] | None = None) -> int:
                       help="commit the fix to a local garage/ branch")
     repo.add_argument("--push", action="store_true",
                       help="WRITES TO THE REMOTE: push that branch")
+    repo.add_argument("--skip-preflight", action="store_true",
+                      help="do not check key/Docker/git before starting")
     repo.add_argument("--pr", action="store_true",
                       help="WRITES TO THE REMOTE: open a pull request via gh")
     repo.set_defaults(func=cmd_run_repo)
@@ -637,6 +694,17 @@ def main(argv: list[str] | None = None) -> int:
     rep.add_argument("--title", default="Results")
     rep.add_argument("--out", default=None, help="also write the markdown here")
     rep.set_defaults(func=cmd_report)
+
+    doc = sub.add_parser("doctor", help="check this machine can do a real run")
+    doc.add_argument("--model", default="claude-sonnet-5",
+                     help="the model you intend to run (default: claude-sonnet-5)")
+    doc.add_argument("--pr", action="store_true",
+                     help="also require the GitHub CLI, for opening pull requests")
+    doc.add_argument("--no-docker", action="store_true",
+                     help="skip the Docker check (benchmark mode without grading)")
+    doc.add_argument("--offline", action="store_true",
+                     help="skip the live key check -- no API call at all")
+    doc.set_defaults(func=cmd_doctor)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

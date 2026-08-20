@@ -112,12 +112,44 @@ uv run python -m engine.cli run-one --task django__django-11099 --model stub --s
 ```
 
 A stub run is **not a result** — it reports whatever it was scripted to report,
-and the CLI says so on every run. With a real model:
+and the CLI says so on every run.
+
+### Bring your own key
+
+The repairs are done by Claude. You supply the key; nothing is bundled, and
+nothing is ever written to a file by the garage itself.
 
 ```bash
-cp .env.example .env   # add your GROQ_API_KEY
-uv run python -m engine.cli run-one --task django__django-11099 --model openai/gpt-oss-20b
+cp .env.example .env    # then paste your key into ANTHROPIC_API_KEY
 ```
+
+Get one from [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys).
+`.env` is gitignored, and keys are kept out of code, configs, events and
+artifacts (`rules.md` §1). `export ANTHROPIC_API_KEY=...` works just as well if
+you would rather not have a file at all.
+
+Check the machine before spending anything:
+
+```bash
+uv run python -m engine.cli doctor          # key, Docker, git, gh, pricing
+uv run python -m engine.cli doctor --offline    # ...without calling the API
+```
+
+It prints a masked fingerprint (`sk-ant-…a1b2`) so you can tell which key is
+loaded, never the key. Every failure comes with the exact command that fixes
+it. Runs preflight themselves too, before cloning anything — a typo should cost
+two seconds, not three minutes.
+
+Then, on a benchmark task or on your own repo:
+
+```bash
+uv run python -m engine.cli run-one  --task django__django-11099 --model claude-sonnet-5
+uv run python -m engine.cli run-repo --url github.com/you/yourrepo \
+  --issue "dates before 1970 come back off by one" --model claude-sonnet-5 --branch
+```
+
+Costs, measured: about **$0.09 per task** on `claude-sonnet-5`. `--max-usd` caps
+a whole batch.
 
 ## Docs
 
