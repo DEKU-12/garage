@@ -18,6 +18,7 @@ Emits: context_pack_ready.
 
 from __future__ import annotations
 
+import ast
 import math
 import re
 from dataclasses import dataclass
@@ -196,6 +197,41 @@ _PATH_IN_TEXT = re.compile(
 _TEST_FILE = re.compile(r"(?:^|/)test_([\w]+)\.py")
 
 
+def _imports_of(test_rel: str, tree: Path) -> list[str]:
+    """Repo files a failing test imports.
+
+    The strongest signal left, and the one that covers what the other two
+    miss. An assertion failure's traceback bottoms out in the TEST, not the
+    source, so no source path is ever printed -- and test files are named
+    after packages or ideas rather than modules: test_report.py exercises
+    aggregate.py, test_agents.py exercises config.py.
+
+    But the test says what it uses, at the top, in its imports.
+    """
+    path = Path(tree) / test_rel
+    try:
+        parsed = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return []
+
+    modules: list[str] = []
+    for node in ast.walk(parsed):
+        if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            modules.append(node.module)
+        elif isinstance(node, ast.Import):
+            modules += [a.name for a in node.names]
+
+    out: list[str] = []
+    for mod in modules:
+        parts = mod.split(".")
+        # engine.report.aggregate -> engine/report/aggregate.py, else the
+        # package's __init__, else nothing
+        candidate = Path(*parts).with_suffix(".py")
+        if (Path(tree) / candidate).is_file():
+            out.append(str(candidate))
+    return out
+
+
 def cited_paths(issue: str, tree: Path) -> list[tuple[str, int | None]]:
     """Files the failing output points at, in the order it points at them.
 
@@ -229,6 +265,11 @@ def cited_paths(issue: str, tree: Path) -> list[tuple[str, int | None]]:
         stem = m.group(1)
         for cand in sorted(Path(tree).rglob(f"{stem}.py")):
             add(str(cand.relative_to(tree)), None)
+
+    # ...and whatever those failing tests import
+    for test_rel in dict.fromkeys(re.findall(r"((?:[\w/]+/)?test_[\w]+\.py)", issue)):
+        for rel in _imports_of(test_rel, tree):
+            add(rel, None)
     return out
 
 

@@ -198,3 +198,43 @@ def test_the_cited_file_reaches_the_pack(tmp_path):
     pack = build_context_pack('File "engine/events.py", line 2, in emit',
                               tmp_path, token_budget=6000)
     assert "engine/events.py" in {e.file for e in pack}
+
+
+def test_scout_follows_what_a_failing_test_imports(tmp_path):
+    """The signal that covers what the other two miss.
+
+    An assertion failure's traceback bottoms out in the TEST, so no source
+    path is ever printed; and test files are named after packages or ideas
+    rather than modules -- test_report.py exercises aggregate.py, and
+    test_agents.py exercises config.py. But the test says what it uses, at
+    the top, in its imports.
+    """
+    from engine.agents.scout import cited_paths
+
+    _tree(tmp_path, **{
+        "engine/report/__init__.py": "",
+        "engine/report/aggregate.py": "def render():\n    return 1\n",
+        "tests/test_report.py": ("from engine.report.aggregate import render\n\n"
+                                 "def test_render():\n    assert render() == 1\n"),
+    })
+    got = [p for p, _ in cited_paths("FAILED tests/test_report.py::test_render", tmp_path)]
+    assert "engine/report/aggregate.py" in got
+
+
+def test_third_party_imports_are_not_cited(tmp_path):
+    """Only files that exist in the repo. `import pytest` is not a lead."""
+    from engine.agents.scout import cited_paths
+
+    _tree(tmp_path, **{
+        "mine.py": "X = 1\n",
+        "tests/test_mine.py": "import pytest\nimport mine\n\ndef test_x(): pass\n",
+    })
+    got = [p for p, _ in cited_paths("FAILED tests/test_mine.py::test_x", tmp_path)]
+    assert got == ["mine.py"]
+
+
+def test_an_unreadable_test_file_is_not_fatal(tmp_path):
+    from engine.agents.scout import cited_paths
+
+    _tree(tmp_path, **{"tests/test_broken.py": "def oops(:\n"})
+    assert cited_paths("FAILED tests/test_broken.py::x", tmp_path) == []
