@@ -686,15 +686,27 @@ def cmd_mutants(args: argparse.Namespace) -> int:
                 print("  Fix the suite in the container first, then regenerate.")
                 return 3
 
+            # A mutant gets a few times the baseline's own runtime. The
+            # default 1800s was tuned for a cold install; against a suite that
+            # takes 14 seconds it means an infinite-loop mutant holds Docker
+            # for half an hour instead of a minute.
+            budget = max(120, int((time.monotonic() - started) * 4))
+            print(f"\ntimeout per mutant: {budget}s "
+                  f"(a hanging mutant is discarded, not fatal)")
+
             pool = generate(tree, limit=args.pool, seed=args.seed)
             print(f"\n{len(pool)} candidates, filtering to {args.want} viable:")
             for m in pool:
                 if len(kept) >= args.want:
                     break
-                t = viable(m, tree, task.suite, base, cache, log=print)
+                t = viable(m, tree, task.suite, base, cache, log=print,
+                           timeout_s=budget)
                 if t:
                     sha = commit_mutant(m, task.repo, task.base_commit, WORKSPACES)
                     kept.append(replace(t, commit=sha))
+                    # written as we go: the first run lost 36 candidates of
+                    # finished work to one hang at the very end
+                    save(kept, REPO_ROOT / args.out)
     finally:
         cache.close()
 

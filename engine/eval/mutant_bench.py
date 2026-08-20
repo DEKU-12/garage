@@ -68,13 +68,26 @@ def describe(m: Mutant, broke: list[str], output: str) -> str:
 
 
 def viable(mutant: Mutant, tree: Path, suite, baseline: SuiteRun,
-           runner, log=print) -> MutantTask | None:
-    """Apply, run, and keep only if it broke something that was passing."""
+           runner, log=print, timeout_s: int | None = None) -> MutantTask | None:
+    """Apply, run, and keep only if it broke something that was passing.
+
+    A mutant that hangs is DISCARDED, not fatal. Flipping `<` to `<=` in a
+    loop condition is an infinite loop, and the first real generation run met
+    one: a single candidate held Docker for the full 1800s timeout, raised,
+    and took 36 candidates of finished work down with it.
+
+    A hang is also not a usable task even in principle -- there is no failing
+    test to hand the model, only a suite that never finished.
+    """
     target = Path(tree) / mutant.path
     original = target.read_text(encoding="utf-8")
     try:
         target.write_text(mutant.source, encoding="utf-8")
-        after = run_suite(tree, suite, runner)
+        kwargs = {"timeout_s": timeout_s} if timeout_s else {}
+        after = run_suite(tree, suite, runner, **kwargs)
+    except GradingInfraError as exc:
+        log(f"    {mutant.summary}: {exc} -- discarded (probably a loop)")
+        return None
     finally:
         target.write_text(original, encoding="utf-8")
 

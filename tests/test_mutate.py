@@ -127,3 +127,42 @@ def test_mutants_are_spread_across_files(tmp_path):
 def test_generating_from_a_repo_with_nothing_to_break_is_empty(tmp_path):
     write(tmp_path, "m.py", "X = 1\n")
     assert generate(tmp_path, limit=5) == []
+
+
+# ------------------------------------------------------- mutants that hang
+
+def test_a_hanging_mutant_is_discarded_not_fatal(tmp_path):
+    """Flipping `<` to `<=` in a loop condition is an infinite loop.
+
+    The first real generation run met one: a single candidate held Docker for
+    the full 1800s timeout, raised, and took 36 candidates of finished work
+    down with it. A hang is not a usable task either -- there is no failing
+    test to hand the model, only a suite that never finished.
+    """
+    from engine.errors import GradingInfraError
+    from engine.eval.mutant_bench import viable
+    from engine.eval.mutate import Mutant
+    from engine.eval.repo_grader import SuiteRun
+
+    src = tmp_path / "m.py"
+    src.write_text("x = 1\n")
+    m = Mutant(mid="m-L1-x", path="m.py", line=1, operator="x",
+               before="x = 1", after="x = 2", source="x = 2\n")
+
+    import engine.eval.mutant_bench as mb
+
+    def hangs(*_a, **_k):
+        raise GradingInfraError("docker timed out after 120s")
+
+    said = []
+    real, mb.run_suite = mb.run_suite, hangs
+    try:
+        out = viable(m, tmp_path, suite=object(),
+                     baseline=SuiteRun(0, "", frozenset()),
+                     runner=None, log=said.append, timeout_s=1)
+    finally:
+        mb.run_suite = real
+
+    assert out is None
+    assert any("discarded" in s for s in said)
+    assert src.read_text() == "x = 1\n", "the tree must be left as it was found"

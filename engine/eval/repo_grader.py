@@ -303,9 +303,11 @@ def staged(tree: Path):
         yield dest
 
 
-def run_suite(tree: Path, suite: Suite, runner=docker_runner) -> SuiteRun:
+def run_suite(tree: Path, suite: Suite, runner=docker_runner,
+              timeout_s: int = DOCKER_TIMEOUT_S) -> SuiteRun:
     with staged(tree) as clean:
-        code, out = runner(suite.image, clean, [*suite.setup, suite.command])
+        code, out = runner(suite.image, clean, [*suite.setup, suite.command],
+                           timeout_s)
     return SuiteRun(code, out, parse_failures(out, suite), suite_reported(out, suite))
 
 
