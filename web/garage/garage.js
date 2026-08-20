@@ -50,6 +50,16 @@ const MIN_WORK_MS = 700;
  * and the playhead stay honest about when things happened -- it just does not
  * take real minutes to get there. */
 const MAX_GAP_MS = 2500, GAP_LANDING_MS = 400;
+
+/* The dwell is measured from ARRIVAL, not from the event.
+ *
+ * Measured from the event it was useless for exactly the mechanics you most
+ * wanted to see: the orchestrator starts and finishes a routing decision in
+ * the same millisecond, and his whiteboard is 220px from the car -- 0.73s of
+ * walking. A 700ms dwell counted from the event expired before he got there,
+ * so he turned round mid-stride and never appeared to do anything. The scribe,
+ * 242px away, had the same problem. The two nobody could see were the two
+ * furthest from their bay, which is the tell. */
 const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /* Scrubbing means rebuilding the scene at an arbitrary point by folding the
@@ -525,13 +535,14 @@ function applyToScene(e) {
       if (!role) break;
       // only ever one at a time: whoever was working goes back to their bench
       if (S.active && S.active !== role) {
-        avatars[S.active].goHomeAt = 0;          // cancel any pending release
+        const prev = avatars[S.active];
+        prev.doneWaiting = false; prev.arrivedAt = 0;   // cancel pending release
         sendHome(S.active);
       }
       S.active = role;
       const bay = BAY[role];
-      avatars[role].busySince = performance.now();
-      avatars[role].goHomeAt = 0;
+      const a = avatars[role];
+      a.arrivedAt = 0; a.doneWaiting = false; a.goHomeAt = 0;
       walkTo(role, bay.x, bay.y, "work");
       setWorkLamp(role);                 // amber lamp, glow and popup, singular
       break;
@@ -560,9 +571,9 @@ function applyToScene(e) {
         if (S.active === role) { S.active = null; setWorkLamp(null); }
         break;
       }
-      // Hold the bay long enough to be seen, then the ticker sends them back.
-      const a = avatars[role];
-      a.goHomeAt = Math.max(performance.now(), (a.busySince || 0) + MIN_WORK_MS);
+      // Remember that they are finished; the ticker releases them once they
+      // have actually stood at the car for long enough to be seen.
+      avatars[role].doneWaiting = true;
       break;
     }
 
@@ -599,11 +610,16 @@ function tick(ticker) {
 
   AGENTS.forEach((name, i) => {
     const a = avatars[name];
+    const wasWalking = !!a.target;
     moveToward(a, WALK_SPEED, dt);
-    if (!a.target && a.mode === "walk") a.mode = a.then || "idle";
+    if (wasWalking && !a.target && a.mode === "walk") {
+      a.mode = a.then || "idle";
+      if (a.mode === "work") a.arrivedAt = now;  // the clock starts HERE
+    }
 
-    if (a.goHomeAt && now >= a.goHomeAt) {       // the dwell is up
-      a.goHomeAt = 0;
+    // Released only once they have been seen at the car for MIN_WORK_MS.
+    if (a.doneWaiting && a.arrivedAt && now >= a.arrivedAt + MIN_WORK_MS) {
+      a.doneWaiting = false; a.arrivedAt = 0;
       sendHome(name);
       if (S.active === name) { S.active = null; setWorkLamp(null); paintHud(); }
     }
@@ -711,7 +727,8 @@ function resetScene() {
     const st = STATIONS[n];
     avatars[n].x = st.x; avatars[n].y = st.y;
     avatars[n].target = null; avatars[n].mode = "idle";
-    avatars[n].goHomeAt = 0; avatars[n].busySince = 0;
+    avatars[n].goHomeAt = 0; avatars[n].arrivedAt = 0;
+    avatars[n].doneWaiting = false;
   });
   setWorkLamp(null);
   car.visible = false; car.target = null; car.exiting = false;
