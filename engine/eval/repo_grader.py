@@ -129,8 +129,14 @@ def parse_failures(output: str, suite: Suite) -> frozenset[str]:
 
 # --------------------------------------------------------------- execution
 
-def _sh(argv_list: list[list[str]]) -> str:
-    return " && ".join(" ".join(_sh_quote(a) for a in argv) for argv in argv_list)
+def _sh(argv_list: list) -> str:
+    """Join steps with &&. A step given as a plain string is passed through
+    unquoted, which is how a step marks itself optional (`... || true`)."""
+    parts = []
+    for argv in argv_list:
+        parts.append(argv if isinstance(argv, str)
+                     else " ".join(_sh_quote(a) for a in argv))
+    return " && ".join(parts)
 
 
 def _docker(args: list[str], timeout_s: int, exec_=subprocess.run) -> tuple[int, str]:

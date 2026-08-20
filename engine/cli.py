@@ -33,6 +33,8 @@ from engine.batch import (
     run_spend_usd,
     select_tasks,
 )
+from dataclasses import replace
+
 from engine.errors import QuotaExhausted
 # qualified: engine.report.aggregate also exports render(), and a bare
 # import of both silently shadows one of them
@@ -633,6 +635,80 @@ def _ship(task, run_dir: Path, verdict: str, row: dict, args, shipping,
             print(f"  pull request: {url or '(opened)'}")
 
 
+def cmd_mutants(args: argparse.Namespace) -> int:
+    """Generate a frozen set of mutants: bugs with no published fix.
+
+    Costs nothing -- no model is called. Every candidate is applied and the
+    suite run, and only the ones that turn a green test red survive.
+    """
+    import hashlib
+
+    from engine.graph import WORKSPACES
+    from engine.eval.mutant_bench import commit_mutant, save, viable
+    from engine.eval.mutate import generate
+    from engine.eval.repo_grader import CachedImage, run_suite
+    from engine.repo.front_door import open_repo
+    from engine.repo.workspace import attempt_worktree
+
+    task = open_repo(args.url, "mutant generation", WORKSPACES)
+    print(f"\nrepo   {task.repo} @ {task.base_commit[:12]}")
+    print(f"suite  {task.suite.kind} -- {task.suite.why}")
+    if not task.suite.per_test:
+        print("\nREFUSED: this suite cannot name which tests failed, so a "
+              "mutant's blast radius is unknowable.")
+        return 2
+
+    key = hashlib.sha1(f"mut|{task.repo}@{task.base_commit}".encode()).hexdigest()[:12]
+    cache = CachedImage(key)
+    started = time.monotonic()
+    kept = []
+    try:
+        with attempt_worktree(task.repo, task.base_commit, "mutgen", 1,
+                              WORKSPACES) as tree:
+            print("\nbaseline: the suite must be green before anything is broken")
+            base = run_suite(tree, task.suite, cache)
+            print(f"  {len(base.failures)} failing, exit {base.exit_code}, "
+                  f"{time.monotonic() - started:.0f}s")
+            if not base.reported:
+                print("  the suite did not report -- nothing can be measured "
+                      "against it")
+                return 3
+            if base.failures or base.exit_code not in (0, 1):
+                # A mutant is "viable" if it turns a GREEN test red. Against a
+                # baseline that is already broken -- missing dependencies, a
+                # collection error -- every mutant looks harmless, because the
+                # same failures happen with and without it. That is exactly
+                # how this first reported 0% viable when the truth was 57%.
+                print(f"\n  REFUSED: the baseline is not green "
+                      f"({len(base.failures)} failing, exit {base.exit_code}).")
+                print("  Mutants are graded by what they break, so nothing can "
+                      "be measured against a suite that is already red.")
+                print("  Fix the suite in the container first, then regenerate.")
+                return 3
+
+            pool = generate(tree, limit=args.pool, seed=args.seed)
+            print(f"\n{len(pool)} candidates, filtering to {args.want} viable:")
+            for m in pool:
+                if len(kept) >= args.want:
+                    break
+                t = viable(m, tree, task.suite, base, cache, log=print)
+                if t:
+                    sha = commit_mutant(m, task.repo, task.base_commit, WORKSPACES)
+                    kept.append(replace(t, commit=sha))
+    finally:
+        cache.close()
+
+    out = REPO_ROOT / args.out
+    save(kept, out)
+    print(f"\n{len(kept)} viable of {len(pool)} tried "
+          f"({len(kept) / max(1, len(pool)) * 100:.0f}%), "
+          f"{time.monotonic() - started:.0f}s")
+    print(f"frozen to {args.out} -- every experiment now runs these same bugs")
+    for t in kept:
+        print(f"  {t.mid:40} {t.commit[:8]}  breaks {len(t.fail_to_pass)}")
+    return 0 if kept else 1
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     """Turn run logs into the tables. The only source of reported numbers."""
     dirs = [Path(d) for d in args.run_dirs]
@@ -747,6 +823,15 @@ def main(argv: list[str] | None = None) -> int:
     rep.add_argument("--title", default="Results")
     rep.add_argument("--out", default=None, help="also write the markdown here")
     rep.set_defaults(func=cmd_report)
+
+    mut = sub.add_parser("mutants",
+                         help="generate a frozen set of bugs with no published fix")
+    mut.add_argument("--url", required=True, help="repo to break, e.g. github.com/you/thing")
+    mut.add_argument("--pool", type=int, default=80, help="candidates to try")
+    mut.add_argument("--want", type=int, default=50, help="viable mutants to keep")
+    mut.add_argument("--seed", type=int, default=1, help="same seed, same set")
+    mut.add_argument("--out", default="experiments/mutants/set.json")
+    mut.set_defaults(func=cmd_mutants)
 
     doc = sub.add_parser("doctor", help="check this machine can do a real run")
     doc.add_argument("--model", default="claude-sonnet-5",

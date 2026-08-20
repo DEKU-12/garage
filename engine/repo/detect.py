@@ -89,7 +89,13 @@ def detect_suite(tree: Path) -> Suite | None:
         # Editable install first because it is what makes `import thepackage`
         # work; requirements as a fallback for repos that are not packages.
         if _has(tree, "pyproject.toml", "setup.py", "setup.cfg"):
-            setup.append(["python", "-m", "pip", "install", "--quiet", "-e", "."])
+            # Best effort, not a precondition. Plenty of working repos are not
+            # pip-installable -- flat layouts with several top-level packages
+            # make setuptools refuse to guess, and a project run entirely
+            # through `uv run` never notices. pytest from the repo root still
+            # imports them fine. If dependencies really are missing the suite
+            # will fail to report, and `suite_reported` refuses on that.
+            setup.append("python -m pip install --quiet -e . || true")
         for req in ("requirements.txt", "requirements-dev.txt",
                     "dev-requirements.txt", "test-requirements.txt"):
             if (tree / req).is_file():

@@ -27,6 +27,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from engine.errors import WorkspaceError
 from engine.eval.mutate import Mutant
 from engine.eval.repo_grader import SuiteRun, run_suite
 
@@ -43,6 +44,7 @@ class MutantTask:
     after: str
     fail_to_pass: list[str]     # went green -> red. The definition of fixed.
     issue: str                  # what the garage is told
+    commit: str = ""            # the broken state, as a real commit
 
     def to_json(self) -> dict:
         return asdict(self)
@@ -111,3 +113,34 @@ def save(tasks: list[MutantTask], path: Path) -> None:
 def load(path: Path) -> list[MutantTask]:
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     return [MutantTask(**r) for r in raw]
+
+
+def commit_mutant(mutant: Mutant, repo: str, base: str, root) -> str:
+    """Record the broken state as a real commit, and return its sha.
+
+    Everything downstream -- the scout's worktree, each builder attempt, the
+    grader's checkouts -- takes a repo and a commit. Making the mutation a
+    commit means every one of those works unchanged: no special "and also
+    apply this mutation" path threaded through the pipeline, which is exactly
+    the sort of parallel code path that drifts out of step with the real one.
+
+    The commit is kept alive by a ref under refs/mutants/, so it survives gc
+    and can be checked out by hand when a result looks wrong.
+    """
+    from engine.repo.workspace import _git, attempt_worktree
+
+    with attempt_worktree(repo, base, "mutcommit", 1, root) as tree:
+        (Path(tree) / mutant.path).write_text(mutant.source, encoding="utf-8")
+        if _git(["add", "-A"], cwd=tree).returncode != 0:
+            raise WorkspaceError(f"{mutant.mid}: git add failed")
+        made = _git(["-c", "user.name=The Garage",
+                     "-c", "user.email=garage@localhost",
+                     "commit", "-m",
+                     f"mutant {mutant.mid}: {mutant.operator} at "
+                     f"{mutant.path}:{mutant.line}"], cwd=tree)
+        if made.returncode != 0:
+            raise WorkspaceError(f"{mutant.mid}: commit failed: {made.stderr[-200:]}")
+        sha = _git(["rev-parse", "HEAD"], cwd=tree).stdout.strip()
+        # A ref, so gc cannot collect the only copy of a task we are measuring.
+        _git(["update-ref", f"refs/mutants/{mutant.mid}", sha], cwd=tree)
+    return sha

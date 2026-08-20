@@ -24,6 +24,14 @@ dependencies = [
 #   week 3 -> fastapi, uvicorn            (server/)
 #   P1     -> chromadb                    (must earn its place via E2/M4)
 
+# setuptools refuses to guess when a flat layout has several top-level
+# directories -- it found web/, server/, engine/, experiments/ and stopped,
+# so `pip install -e .` failed and the project was not installable at all.
+# `uv run` never noticed because it does not install the project. Anything
+# that DOES install it -- a container, CI, another machine -- did.
+[tool.setuptools]
+packages = ["engine", "server"]
+
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
