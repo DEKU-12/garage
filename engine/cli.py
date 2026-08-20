@@ -34,7 +34,7 @@ from engine.batch import (
 from engine.errors import QuotaExhausted
 # qualified: engine.report.aggregate also exports render(), and a bare
 # import of both silently shadows one of them
-from engine import preflight as pf
+from engine import approval, preflight as pf
 from engine.events import EventLog
 from engine.graph import build_graph
 from engine.report.aggregate import common_tasks, gate_lift, render, summarize
@@ -518,7 +518,7 @@ def cmd_run_repo(args: argparse.Namespace) -> int:
         if verdict == "fail":
             print("\nno branch: nothing to ship for a failed run")
         else:
-            _ship(task, run_dir, verdict, row, args, shipping)
+            _ship(task, run_dir, verdict, row, args, shipping, events=events)
 
     events.emit("run_finished", agent="orchestrator", task_arms=1)
     print(f"artifacts: runs/{run_id}/")
@@ -540,12 +540,14 @@ def _final_patch(run_dir: Path, task_id: str) -> tuple[str, int]:
     return "", 0
 
 
-def _ship(task, run_dir: Path, verdict: str, row: dict, args, shipping) -> None:
+def _ship(task, run_dir: Path, verdict: str, row: dict, args, shipping,
+          events=None) -> None:
     """Branch, commit, and -- only if explicitly asked -- push and open a PR.
 
-    Committing is local and harmless. Pushing and PR-opening write to somebody
-    else's repository, so they are separate flags and are never implied by a
-    successful run.
+    Every one of those three steps asks a human first (engine/approval.py).
+    The flags say what you are WILLING to do; the prompts are where you
+    actually decide, having seen the diff. A run that finishes at 3am with
+    nobody watching writes nothing.
     """
     from engine.graph import WORKSPACES
     from engine.repo.patch import apply_patch
@@ -558,8 +560,26 @@ def _ship(task, run_dir: Path, verdict: str, row: dict, args, shipping) -> None:
 
     branch = shipping.branch_name(task.task_id, verdict)
     title = ("fix: " if verdict == "pass" else "unverified: ") + args.issue.splitlines()[0][:72]
+    witness = list(row.get("witness_tests") or [])
     body = shipping.pr_body(task, verdict, str(row.get("failure_type") or ""),
-                            [], [], int(row.get("attempts", 0)))
+                            witness, [], int(row.get("attempts", 0)))
+    assume = getattr(args, "yes", False)
+
+    def gate(action: str) -> bool:
+        """Show the change, ask, and put the answer in the log."""
+        print(approval.describe(action, repo=task.repo, branch=branch,
+                                base=task.default_branch, verdict=verdict,
+                                patch=patch, witness=witness,
+                                attempts=int(row.get("attempts", 0))))
+        d = approval.ask(action, verdict=verdict, assume_yes=assume)
+        if events is not None:
+            # A human decision is a gate in exactly the sense the frozen v:1
+            # schema already means, so it needs no new event type (ADR-10) and
+            # lands on the replay tape like any other verdict.
+            events.emit("gate_verdict", agent="orchestrator", task_id=task.task_id,
+                        gate="human", verdict="approve" if d.approved else "decline",
+                        action=action, how=d.how, branch=branch)
+        return d.approved
 
     with attempt_worktree(task.repo, task.base_commit, task.task_id,
                           9000 + attempt_n, WORKSPACES, keep=True) as tree:
@@ -567,6 +587,8 @@ def _ship(task, run_dir: Path, verdict: str, row: dict, args, shipping) -> None:
         if not applied.applied:
             print(f"\nno branch: the patch would not re-apply "
                   f"({applied.stderr[-200:]})")
+            return
+        if not gate("commit to a branch"):
             return
         res = shipping.commit_patch(tree, branch, task.default_branch, title)
         print(f"\nbranch {branch}")
@@ -577,9 +599,15 @@ def _ship(task, run_dir: Path, verdict: str, row: dict, args, shipping) -> None:
             print("  local only -- nothing was pushed. Add --push to send it.")
             return
 
+        if not gate(f"push this branch to github.com/{task.repo}"):
+            print("  the commit is still on disk; nothing left this machine.")
+            return
         shipping.push_branch(tree, branch)
         print(f"  pushed to origin/{branch}")
         if args.pr:
+            if not gate(f"open a pull request against {task.default_branch}"):
+                print("  branch is pushed; no pull request was opened.")
+                return
             url = shipping.open_pr(tree, branch, task.default_branch, title, body)
             print(f"  pull request: {url or '(opened)'}")
 
@@ -683,6 +711,10 @@ def main(argv: list[str] | None = None) -> int:
                       help="commit the fix to a local garage/ branch")
     repo.add_argument("--push", action="store_true",
                       help="WRITES TO THE REMOTE: push that branch")
+    repo.add_argument("--yes", action="store_true",
+                      help="approve repo writes without asking -- for genuinely "
+                           "unattended runs. Recorded in the log as assumed_yes, "
+                           "never as a human decision.")
     repo.add_argument("--skip-preflight", action="store_true",
                       help="do not check key/Docker/git before starting")
     repo.add_argument("--pr", action="store_true",

@@ -151,6 +151,43 @@ uv run python -m engine.cli run-repo --url github.com/you/yourrepo \
 Costs, measured: about **$0.09 per task** on `claude-sonnet-5`. `--max-usd` caps
 a whole batch.
 
+### Nothing touches your repo without you
+
+`--branch`, `--push` and `--pr` say what you are *willing* to allow. You still
+decide each one, after seeing the diff:
+
+```
+====================================================================
+  ABOUT TO PUSH THIS BRANCH TO GITHUB.COM/YOU/YOURREPO
+====================================================================
+  repo      you/yourrepo
+  branch    garage/fix-yourrepo-a1b2c3   (base: main)
+  verdict   pass
+  attempts  2
+  change    2 file(s), +31 -4
+  witness   tests/test_dates.py::test_pre_1970
+--------------------------------------------------------------------
+  ...the diff...
+--------------------------------------------------------------------
+  Push this branch to github.com/you/yourrepo? [y/N]:
+```
+
+Three rules worth knowing:
+
+- **Silence is never consent.** With no terminal to ask on — cron, CI, output
+  piped to a file — the answer is **no**. An agent that reads "nobody was
+  there to object" as approval is the thing this gate exists to stop.
+- **An `unverified` result is harder to approve than a `pass`.** A pass has a
+  witness test behind it; unverified has nothing proving the change does
+  anything. So a pass takes `y`, and unverified makes you type the whole word
+  `unverified`. Muscle memory should not be able to ship it.
+- **`--yes` exists for genuinely unattended runs**, and is written to the log
+  as `assumed_yes` — never as a human decision, so a replay always shows
+  whether anyone actually looked.
+
+Decisions land in `events.jsonl` as `gate_verdict` with `gate="human"`, so they
+appear on the replay tape next to the tests and review verdicts.
+
 ## Docs
 
 | File | What it is |
