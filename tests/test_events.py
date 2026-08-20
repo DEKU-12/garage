@@ -128,3 +128,53 @@ def test_payloads_are_small_enough_to_tail(log: EventLog) -> None:
                  attempt=2, lines=41, artifact="attempts/2/patch.diff")
     assert len(json.dumps(e)) < 500
     assert e["payload"]["artifact"] == "attempts/2/patch.diff"
+
+
+# --------------------------------------- every activation has a completion
+
+def test_no_agent_is_left_activated_forever(tmp_path):
+    """A mechanic who starts and never finishes is a hole in the record.
+
+    The garage is a pure view of this log, so an unbalanced activation shows
+    up as somebody standing at the car until an unrelated event happens to
+    move them. Spotted in a real feed: the builder emitted three `build start`
+    and two `build done`, because the patch-rejected and apply-failed paths
+    returned early without closing.
+    """
+    from engine.events import EventLog
+
+    log = EventLog.for_run(tmp_path, "balance")
+    for agent in ("scout", "builder", "tester"):
+        log.emit("agent_activated", agent=agent, task_id="t")
+        log.emit("agent_done", agent=agent, task_id="t")
+
+    counts: dict[str, int] = {}
+    for line in (tmp_path / "events.jsonl").read_text().splitlines():
+        import json
+        e = json.loads(line)
+        if e["type"] == "agent_activated":
+            counts[e["agent"]] = counts.get(e["agent"], 0) + 1
+        elif e["type"] == "agent_done":
+            counts[e["agent"]] = counts.get(e["agent"], 0) - 1
+    assert all(v == 0 for v in counts.values()), f"unbalanced: {counts}"
+
+
+def test_the_graph_closes_every_builder_exit():
+    """Source-level guard: each `return` in builder_node must be preceded by an
+    agent_done. Cheaper than a real run, and it fails when a new early exit is
+    added without one."""
+    import inspect
+    import re
+
+    from engine import graph
+
+    src = inspect.getsource(graph.build_graph)
+    body = re.search(r"def builder_node\(.*?\n(.*?)\n    def tester_node", src, re.S)
+    assert body, "builder_node not found"
+    text = body.group(1)
+    # every return that yields attempts should have closed the agent first
+    for match in re.finditer(r"\n(\s+)return (update|\{[^\n]*attempts)", text):
+        before = text[max(0, match.start() - 400):match.start()]
+        assert 'emit("agent_done", "builder"' in before, (
+            "a builder_node exit returns without emitting agent_done:\n"
+            + text[max(0, match.start() - 200):match.start() + 60])

@@ -171,6 +171,8 @@ def build_graph(
             emit("budget_exceeded", "builder", state["task_id"], attempt=n,
                  tokens=_tokens_used(state),
                  usd=round(state.get("spend_usd", 0.0), 4))
+            emit("agent_done", "builder", state["task_id"], attempt=n,
+                 outcome="budget_exceeded")
             return {"attempts": [*state.get("attempts", []), attempt],
                     "status": "budget_exceeded", "failure_type": "budget_exceeded"}
 
@@ -192,6 +194,8 @@ def build_graph(
             attempt["failure"] = "model_error"
             attempt["wall_ms"] = int((time.monotonic() - started) * 1000)
             _write(adir / "meta.json", json.dumps({"error": str(exc)}, indent=2))
+            emit("agent_done", "builder", state["task_id"], attempt=n,
+                 outcome="model_error")
             return {"attempts": [*state.get("attempts", []), attempt],
                     "status": "crashed", "failure_type": "model_error"}
 
@@ -237,6 +241,8 @@ def build_graph(
                 attempt["wall_ms"] = int((time.monotonic() - started) * 1000)
                 update["feedback"] = str(exc)
                 update["attempts"] = [*state.get("attempts", []), attempt]
+                emit("agent_done", "builder", state["task_id"], attempt=n,
+                     outcome="patch_rejected")
                 return update
 
             applied = apply_patch(diff, tree)
@@ -249,6 +255,8 @@ def build_graph(
                 attempt["wall_ms"] = int((time.monotonic() - started) * 1000)
                 update["feedback"] = applied.stderr  # git's own words, verbatim
                 update["attempts"] = [*state.get("attempts", []), attempt]
+                emit("agent_done", "builder", state["task_id"], attempt=n,
+                     outcome="apply_failed")
                 return update
 
             submission = tree_diff(tree)
@@ -291,6 +299,8 @@ def build_graph(
             log(f"  GRADING INFRA FAILURE: {exc}")
             emit("task_failed", "tester", state["task_id"],
                  reason="crashed", detail=str(exc)[:300])
+            emit("agent_done", "tester", state["task_id"],
+                 attempt=attempt["n"], outcome="grading_infra_error")
             attempt["test_verdict"] = None
             attempt["failure"] = "grading_infra_error"
             attempts[-1] = attempt
