@@ -42,6 +42,11 @@ class Suite:
     marker_files: list[str] = field(default_factory=list)
 
 
+def _sh_safe(req: str) -> str:
+    """Quote a requirement for a shell command line -- `pkg>=1.2` needs it."""
+    return "'" + req.replace("'", "'\\''") + "'"
+
+
 def _has(tree: Path, *names: str) -> str | None:
     for n in names:
         if (tree / n).exists():
@@ -60,6 +65,37 @@ def _looks_like_python_tests(tree: Path) -> bool:
 # refusal say WHY, which is the difference between a bug report and a shrug.
 COMPOSE_FILES = ("docker-compose.yml", "docker-compose.yaml",
                  "compose.yml", "compose.yaml")
+
+
+# Where projects put the dependencies their TESTS need, as opposed to the ones
+# the package needs to run. `pip install -e .` installs neither of these:
+# PEP 735 dependency-groups are not installed by default, and extras must be
+# named explicitly. A container that skips them looks like a repo whose tests
+# are broken -- six collection errors on this project, from one missing httpx.
+TEST_GROUPS = ("dev", "test", "tests", "testing", "dev-dependencies")
+
+
+def test_requirements(tree: Path) -> list[str]:
+    """Requirement strings a repo declares for its own test suite."""
+    pyproject = Path(tree) / "pyproject.toml"
+    if not pyproject.is_file():
+        return []
+    try:
+        import tomllib
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    except (OSError, ValueError, ImportError):
+        return []
+
+    found: list[str] = []
+    groups = data.get("dependency-groups") or {}
+    extras = (data.get("project") or {}).get("optional-dependencies") or {}
+    for source in (groups, extras):
+        for name, reqs in source.items():
+            if name.lower() not in TEST_GROUPS:
+                continue
+            # entries may be {include-group: ...} tables; only strings install
+            found += [r for r in reqs if isinstance(r, str)]
+    return sorted(set(found))
 
 
 def _make_has_test_target(tree: Path) -> bool:
@@ -100,6 +136,12 @@ def detect_suite(tree: Path) -> Suite | None:
                     "dev-requirements.txt", "test-requirements.txt"):
             if (tree / req).is_file():
                 setup.append(["python", "-m", "pip", "install", "--quiet", "-r", req])
+        # Whatever the repo says its own tests need. Best effort: a single
+        # unresolvable pin should not stop the suite running at all.
+        extra = test_requirements(tree)
+        if extra:
+            setup.append("python -m pip install --quiet "
+                         + " ".join(_sh_safe(r) for r in extra) + " || true")
         setup.append(["python", "-m", "pip", "install", "--quiet", "pytest"])
         return Suite(
             kind="pytest",
