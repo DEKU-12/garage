@@ -82,8 +82,23 @@ def test_a_priced_model_shows_its_rate():
     assert c.ok and "/M in" in c.detail
 
 
-def test_gh_is_only_fatal_when_a_pull_request_was_asked_for():
-    assert pf.check_gh(needed=False).fatal is False
+def test_gh_is_only_fatal_when_a_pull_request_was_asked_for(monkeypatch):
+    """Missing gh blocks a --pr run and merely warns otherwise.
+
+    Written first as `check_gh(needed=False).fatal is False` with no
+    monkeypatching, which passed only because the dev machine happened to be
+    logged OUT of gh. Authenticating it turned the suite red -- the assertion
+    had never exercised the branch it claimed to (rules.md: a green suite
+    proves nothing about paths the fixtures never reach). Both directions are
+    pinned here, with the host's real gh state taken out of it.
+    """
+    monkeypatch.setattr(pf.shutil, "which", lambda _name: None)   # gh absent
+    not_needed = pf.check_gh(needed=False)
+    needed = pf.check_gh(needed=True)
+    assert not_needed.ok is False and not_needed.fatal is False
+    assert needed.ok is False and needed.fatal is True
+    assert pf.blocking([not_needed]) == []          # warns
+    assert pf.blocking([needed]) == [needed]        # blocks
 
 
 def test_blocking_ignores_warnings():
