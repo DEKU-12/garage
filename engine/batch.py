@@ -56,6 +56,21 @@ def completed_task_ids(results_csv: Path) -> set[str]:
         return {row["task_id"] for row in csv.DictReader(handle) if row.get("task_id")}
 
 
+def result_row(row: dict) -> dict:
+    """Narrow an in-memory row to what results.csv actually stores.
+
+    The row a run produces carries more than the CSV does -- `status`, for
+    instance, which repo mode needs to tell `shipped` from `unverified` but
+    which no report reads. Widening RESULT_FIELDS instead would strand every
+    results.csv already on disk, E1's included.
+
+    This exists because there were two writers and only one of them filtered.
+    The unfiltered one crashed the moment a field was added -- AFTER a full
+    run, at the last line, having already spent the Docker time.
+    """
+    return {k: row.get(k, "") for k in RESULT_FIELDS}
+
+
 def append_result(results_csv: Path, row: dict) -> None:
     """Append one task's row immediately, so a crash loses at most one task."""
     Path(results_csv).parent.mkdir(parents=True, exist_ok=True)
@@ -64,7 +79,7 @@ def append_result(results_csv: Path, row: dict) -> None:
         writer = csv.DictWriter(handle, fieldnames=RESULT_FIELDS)
         if not exists:
             writer.writeheader()
-        writer.writerow({k: row.get(k, "") for k in RESULT_FIELDS})
+        writer.writerow(result_row(row))
 
 
 def remove_image(image: str, log: Callable[[str], None] = print) -> bool:

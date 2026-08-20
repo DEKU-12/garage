@@ -159,3 +159,40 @@ def test_a_fresh_directory_has_nothing_to_conflict_with(tmp_path: Path) -> None:
     from engine.batch import resume_conflict
     from engine.config import RunConfig
     assert resume_conflict(tmp_path / "new", RunConfig(run_id="x", task_ids=[])) is None
+
+
+# ------------------------------------------------ the row and the CSV schema
+
+def test_the_result_row_survives_extra_fields():
+    """A run's in-memory row carries more than results.csv stores -- `status`,
+    which repo mode needs and no report reads.
+
+    This crashed a full run at its very last line: cmd_run_one wrote the row
+    straight to a DictWriter while batch.py filtered it, so adding one field
+    broke one writer and not the other, AFTER the Docker time was spent.
+    """
+    from engine.batch import RESULT_FIELDS, result_row
+
+    row = {"task_id": "t", "solved": True, "attempts": 5, "failure_type": "",
+           "prompt_tokens": 1, "completion_tokens": 2, "wall_ms": 3,
+           "model": "stub",
+           "status": "shipped", "witness_tests": ["a::b"], "anything": object()}
+    out = result_row(row)
+    assert set(out) == set(RESULT_FIELDS)
+    assert "status" not in out and "witness_tests" not in out
+    assert out["task_id"] == "t" and out["attempts"] == 5
+
+
+def test_a_row_missing_fields_still_writes():
+    from engine.batch import RESULT_FIELDS, result_row
+    out = result_row({"task_id": "t"})
+    assert set(out) == set(RESULT_FIELDS)
+    assert out["model"] == ""
+
+
+def test_there_is_exactly_one_definition_of_the_csv_schema():
+    """cli.py used to keep its own copy. They happened to be identical, which
+    is the only reason nothing had gone wrong yet."""
+    import engine.batch
+    import engine.cli
+    assert engine.cli.RESULT_FIELDS is engine.batch.RESULT_FIELDS

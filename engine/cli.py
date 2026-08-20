@@ -23,10 +23,12 @@ from dotenv import load_dotenv
 
 from engine.batch import (
     ARMS,
+    RESULT_FIELDS,
     append_result,
     completed_task_ids,
     disk_free_gb,
     remove_image,
+    result_row,
     resume_conflict,
     run_spend_usd,
     select_tasks,
@@ -64,10 +66,6 @@ from engine.repo.workspace import attempt_worktree
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROMPTS = REPO_ROOT / "engine" / "prompts"
 
-RESULT_FIELDS = [
-    "task_id", "solved", "attempts", "failure_type",
-    "prompt_tokens", "completion_tokens", "wall_ms", "model",
-]
 
 
 def _write(path: Path, text: str) -> None:
@@ -227,7 +225,7 @@ def cmd_run_one(args: argparse.Namespace) -> int:
     with results.open("w", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=RESULT_FIELDS)
         writer.writeheader()
-        writer.writerow(row)
+        writer.writerow(result_row(row))
 
     print("\n" + "=" * 68)
     print(f"{'SOLVED' if row['solved'] else 'NOT SOLVED'}  "
