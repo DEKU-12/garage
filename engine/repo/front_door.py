@@ -29,7 +29,7 @@ from pathlib import Path
 
 from engine.errors import WorkspaceError
 from engine.repo.detect import Suite, detect_suite, refusal_reason
-from engine.repo.workspace import _git, ensure_bare_clone
+from engine.repo.workspace import CLONE_TIMEOUT_S, _git, ensure_bare_clone
 
 # Accepts every form a person actually types, including the bare
 # "github.com/owner/name" that the CLI's own --url help advertises.
@@ -71,6 +71,22 @@ def parse_repo_url(url: str) -> str:
     return f"{m['owner']}/{m['name']}"
 
 
+def refresh(bare: Path) -> None:
+    """Pull the remote's branches down before resolving anything.
+
+    `ensure_bare_clone` reuses an existing clone forever, so the second run
+    against a repo resolved HEAD from whatever was cached the first time. You
+    push a fix, point the garage at it, and it works on the old code without
+    saying so -- which is precisely the failure this found: a commit pushed
+    sixty seconds earlier was invisible, and the run reported on the state
+    before it.
+
+    Best effort: offline, the cached clone is still better than refusing.
+    """
+    _git(["fetch", "--prune", "--quiet", "origin",
+          "+refs/heads/*:refs/heads/*"], cwd=Path(bare), timeout_s=CLONE_TIMEOUT_S)
+
+
 def default_branch(bare: Path) -> str:
     """Whatever the remote calls its trunk. Never assumed to be 'main'."""
     proc = _git(["symbolic-ref", "--short", "HEAD"], cwd=bare)
@@ -98,6 +114,7 @@ def open_repo(url: str, issue: str, root: Path,
     """
     repo = parse_repo_url(url)
     bare = ensure_bare_clone(repo, root)
+    refresh(bare)
     branch = default_branch(bare)
     commit = head_commit(bare, branch)
 
