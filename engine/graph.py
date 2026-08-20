@@ -398,10 +398,14 @@ def build_graph(
     def ship_node(state: TaskState) -> dict[str, Any]:
         attempt = last_attempt(state)
         if attempt and attempt.get("test_verdict") == "pass":
+            # The scribe writes the outcome down BEFORE it is announced.
+            # Emitting `shipped` first meant the car left through the mail slot
+            # and only then did Bholu walk out to record it -- working on an
+            # empty lift, which is both wrong on screen and backwards in fact.
+            record(state, "shipped")
             emit("shipped", "orchestrator", state["task_id"],
                  attempts=len(state.get("attempts", [])),
                  usd=round(state.get("spend_usd", 0.0), 4))
-            record(state, "shipped")
             return {"status": "shipped", "failure_type": ""}
         return {"status": state.get("status") or "failed_tests",
                 "failure_type": state.get("failure_type") or "failed_tests"}
@@ -418,9 +422,9 @@ def build_graph(
             # Reported as itself. Never rounded up to a fix, never rounded down
             # to a test failure -- both would be false.
             failure = "unverified"
+        record(state, failure)
         emit("task_failed", "orchestrator", state["task_id"], reason=failure,
              attempts=len(attempts), usd=round(state.get("spend_usd", 0.0), 4))
-        record(state, failure)
         return {"status": failure, "failure_type": failure}
 
     # ------------------------------------------------------------- routing

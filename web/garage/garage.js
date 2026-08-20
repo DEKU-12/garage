@@ -39,6 +39,17 @@ const ARC_MS = 400, STAMP_MS = 600, MICRO_MS = 120;
  * run. Same principle as the test gauge's 600ms floor (DESIGN §4.4):
  * legibility beats literal timing, as long as nothing is invented. */
 const MIN_WORK_MS = 700;
+
+/* Dead air. A real night is mostly waiting: a 38-second Docker grade, or
+ * hours between tasks. At 1x those gaps play in full and there is nothing to
+ * watch, which is how "play it back at 1x" became useless for the exact runs
+ * the replay exists for.
+ *
+ * With gap-skipping on, a stretch with nothing happening is fast-forwarded to
+ * just before the next event. The clock still moves through it -- the readout
+ * and the playhead stay honest about when things happened -- it just does not
+ * take real minutes to get there. */
+const MAX_GAP_MS = 2500, GAP_LANDING_MS = 400;
 const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /* Scrubbing means rebuilding the scene at an arbitrary point by folding the
@@ -682,7 +693,7 @@ const tms = e => (typeof e.ts === "number" ? e.ts : Date.parse(e.ts || 0)) || 0;
 const LOG = [];              // every event received, in order
 let cursor = 0;              // how many of LOG have been applied
 let clock = 0;               // the virtual moment being shown, in ms
-let playing = false, speed = 1, live = true;
+let playing = false, speed = 1, live = true, skipGaps = true;
 const FEED_TAIL = 250;       // rows kept in the DOM after a re-fold
 
 function runSpan() {
@@ -1110,6 +1121,15 @@ function wireTransport() {
     };
   });
   $("artclose").onclick = () => $("art").classList.remove("open");
+  const gapBtn = $("gaps");
+  const paintGaps = () => {
+    gapBtn.classList.toggle("on", skipGaps);
+    gapBtn.title = skipGaps
+      ? "skipping stretches where nothing happens -- click for real time"
+      : "playing every second of dead air -- click to skip it";
+  };
+  gapBtn.onclick = () => { skipGaps = !skipGaps; paintGaps(); };
+  paintGaps();
 
   const cv = $("tape");
   let dragging = false;
@@ -1147,6 +1167,14 @@ function tickPlayback(ticker) {
   if (!playing || !LOG.length) return;
   const [, t1] = runSpan();
   advanceTo(clock + ticker.deltaMS * speed);
+
+  if (skipGaps && cursor < LOG.length) {
+    const next = tms(LOG[cursor]);
+    if (next - clock > MAX_GAP_MS) {
+      clock = next - GAP_LANDING_MS;   // land just before it, not on top of it
+      drawTape(); paintReadout();
+    }
+  }
   if (clock >= t1) { playing = false; $("play").textContent = "▶";
                      $("status").textContent = "end of run"; }
 }
