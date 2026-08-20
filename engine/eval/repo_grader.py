@@ -184,6 +184,64 @@ def docker_runner(image: str, tree: Path, argv_list: list[list[str]],
         _docker(["rmi", "-f", tag], 120, exec_)
 
 
+class CachedImage:
+    """Install once, test many times.
+
+    A single repo-mode attempt runs the suite three times -- baseline, patched
+    tree, witness check -- and each one was installing the repo's dependencies
+    from scratch. Measured on NL2SQL: 1034 of a run's 1067 seconds were Docker,
+    almost all of it `pip install` repeated three times over. The model itself
+    used about thirty seconds.
+
+    The setup phase is a pure function of the base image and the repo's
+    dependency files at one commit, so it is done ONCE and committed to an
+    image every later grade reuses. Keyed on repo+commit+setup, so a different
+    commit or a changed requirements.txt gets its own image and no run can
+    inherit another's dependencies.
+
+    Tests still run with --network none from the prepared image. Nothing about
+    the isolation changes; only the waiting does.
+    """
+
+    def __init__(self, key: str, exec_=subprocess.run, log=print):
+        self.tag = f"garage-prepared:{key}"
+        self.exec_ = exec_
+        self.log = log
+        self.built = False
+
+    def __call__(self, image: str, tree: Path, argv_list: list[list[str]],
+                 timeout_s: int = DOCKER_TIMEOUT_S) -> tuple[int, str]:
+        mount = ["-v", f"{Path(tree).resolve()}:/repo", "-w", "/repo",
+                 "--platform", "linux/amd64"]
+        setup, test = argv_list[:-1], argv_list[-1]
+
+        if setup and not self.built:
+            self.log("  preparing the environment (installed once, reused all run)")
+            cid = f"garage-setup-{uuid4().hex[:12]}"
+            try:
+                code, out = _docker(["run", "--name", cid, *mount,
+                                     image, "sh", "-lc", _sh(setup)],
+                                    timeout_s, self.exec_)
+                if code != 0:
+                    return code, out          # setup failing IS the answer
+                ok, why = _docker(["commit", cid, self.tag], 300, self.exec_)
+                if ok != 0:
+                    return _fallback(mount, image, argv_list, timeout_s,
+                                     self.exec_, why)
+                self.built = True
+            finally:
+                _docker(["rm", "-f", cid], 120, self.exec_)
+
+        img = self.tag if self.built else image
+        return _docker(["run", "--rm", "--network", "none", *mount,
+                        img, "sh", "-lc", _sh([test])], timeout_s, self.exec_)
+
+    def close(self) -> None:
+        if self.built:
+            _docker(["rmi", "-f", self.tag], 120, self.exec_)
+            self.built = False
+
+
 def _fallback(mount, image, argv_list, timeout_s, exec_, why: str) -> tuple[int, str]:
     """One online container. Loudly, because an isolation guarantee that
     quietly stops holding is worse than one that was never claimed."""
@@ -278,7 +336,7 @@ def grade_repo(
 
 # ------------------------------------------------------- the grader closure
 
-def attempt_grader(task, root: Path, log=print, runner=docker_runner):
+def attempt_grader(task, root: Path, log=print, runner=None, progress=None):
     """Build the grader the tester node calls, for one repo task.
 
     Three suite runs are involved and only two are per-attempt: the baseline is
@@ -294,6 +352,19 @@ def attempt_grader(task, root: Path, log=print, runner=docker_runner):
     suite = task.suite
     cached_baseline: list[SuiteRun] = []
 
+    if runner is None:
+        # Key on what the environment actually depends on: the base image, the
+        # install steps, and the commit those steps read their files from.
+        import hashlib
+        key = hashlib.sha1(
+            f"{task.repo}@{task.base_commit}|{suite.image}|{suite.setup}".encode()
+        ).hexdigest()[:12]
+        runner = CachedImage(key, log=log)
+
+    def note(phase: str) -> None:
+        if progress:
+            progress(phase)
+
     def _run_at(tag: int, patch: str = "") -> SuiteRun:
         with attempt_worktree(task.repo, task.base_commit, task.task_id,
                               tag, root) as tree:
@@ -307,6 +378,7 @@ def attempt_grader(task, root: Path, log=print, runner=docker_runner):
 
     def baseline() -> SuiteRun:
         if not cached_baseline:
+            note("baseline")
             log("  baseline: running the repo's own suite on the unpatched tree")
             cached_baseline.append(_run_at(0))
             b = cached_baseline[0]
@@ -330,6 +402,8 @@ def attempt_grader(task, root: Path, log=print, runner=docker_runner):
         n = int(attempt.get("n", 1))
         patch = attempt.get("patch", "")
 
+        note("patched")
+        log("  grading: the patched tree")
         patched = _run_at(n * 10 + 1, patch)
 
         test_patch, _src = split_test_hunks(patch)
@@ -339,6 +413,8 @@ def attempt_grader(task, root: Path, log=print, runner=docker_runner):
             touched = set(diff_paths(test_patch))
             # The test half WITHOUT the fix: a witness that already passes here
             # proves nothing about the change.
+            note("witness")
+            log("  grading: the new tests WITHOUT the fix")
             witness_before = _run_at(n * 10 + 2, test_patch)
             witness_tests = sorted(
                 t for t in witness_before.failures
@@ -351,4 +427,7 @@ def attempt_grader(task, root: Path, log=print, runner=docker_runner):
                           witness_before=witness_before,
                           witness_tests=witness_tests, started=started)
 
+    # The caller closes this at the end of the run; the prepared image is a
+    # cache, not an artifact, and must not outlive the run that built it.
+    grade.close = getattr(runner, "close", lambda: None)
     return grade

@@ -400,3 +400,55 @@ def test_the_throwaway_container_and_image_are_always_cleaned_up(tmp_path):
                   [["pip", "install", "-e", "."], ["pytest"]], exec_=ex)
     assert any(c[1] == "rm" for c in ex.calls)
     assert any(c[1] == "rmi" for c in ex.calls)
+
+
+# ------------------------------------------------- install once, test often
+
+def test_the_environment_is_prepared_once_and_reused(tmp_path):
+    """Three suite runs per attempt were three full dependency installs.
+
+    Measured on NL2SQL: 1034 of a run's 1067 seconds were Docker, nearly all
+    of it the same `pip install` repeated. The model used about thirty
+    seconds. This is the difference between a run you supervise and one you
+    fire off.
+    """
+    from engine.eval.repo_grader import CachedImage
+
+    ex = _FakeExec()
+    cache = CachedImage("abc123", exec_=ex)
+    steps = [["pip", "install", "-e", "."], ["pytest"]]
+    for _ in range(3):                       # baseline, patched, witness
+        cache("python:3.11-slim", tmp_path, steps)
+
+    # Match on the shell script docker is handed (the last argument), not the
+    # whole command: pytest's own tmp_path lives under `pytest-of-<user>/`, so
+    # matching the joined command counted the mount path as a test run.
+    script = lambda c: c[-1]
+    installs = [c for c in ex.calls if c[1] == "run" and "pip" in script(c)]
+    commits = [c for c in ex.calls if c[1] == "commit"]
+    assert len(installs) == 1, f"installed {len(installs)} times, expected once"
+    assert len(commits) == 1
+
+    test_runs = [c for c in ex.runs() if script(c).strip() == "pytest"]
+    assert len(test_runs) == 3
+    for r in test_runs:
+        assert "--network" in r and "none" in r      # still isolated
+    assert all("garage-prepared:abc123" in " ".join(r) for r in test_runs[1:])
+
+
+def test_the_prepared_image_is_deleted_when_the_run_ends(tmp_path):
+    """A cache, not an artifact: it must not outlive the run that built it."""
+    from engine.eval.repo_grader import CachedImage
+
+    ex = _FakeExec()
+    cache = CachedImage("abc123", exec_=ex)
+    cache("python:3.11-slim", tmp_path, [["pip", "install", "."], ["pytest"]])
+    cache.close()
+    assert any(c[1] == "rmi" for c in ex.calls)
+
+
+def test_a_different_commit_does_not_inherit_another_run_s_dependencies(tmp_path):
+    from engine.eval.repo_grader import CachedImage
+
+    a, b = CachedImage("commit-a"), CachedImage("commit-b")
+    assert a.tag != b.tag

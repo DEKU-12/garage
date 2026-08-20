@@ -494,13 +494,23 @@ def cmd_run_repo(args: argparse.Namespace) -> int:
         print("=" * 68)
         stub = _repo_stub(args)
 
-    grader = attempt_grader(task, WORKSPACES)
+    # Grading is minutes of silence otherwise: `tests_run` fires once and the
+    # next event is the verdict. Seventeen quiet minutes is indistinguishable
+    # from a hang, so each phase announces itself.
+    def phase(name: str) -> None:
+        events.emit("tests_run", agent="tester", task_id=task.task_id, phase=name)
+
+    grader = attempt_grader(task, WORKSPACES, progress=phase)
     try:
         row = run_one(task, cfg, run_dir, stub, args.max_attempts,
                       events=events, grader=grader)
     except WorkspaceError as exc:
         print(f"\nWORKSPACE FAILURE: {exc}")
         return 3
+    finally:
+        # The prepared image is a cache, not an artifact: it must not outlive
+        # the run that built it.
+        grader.close()
 
     status = str(row.get("status", ""))
     verdict = "pass" if status == "shipped" else (
@@ -513,6 +523,14 @@ def cmd_run_repo(args: argparse.Namespace) -> int:
     if status == "unverified":
         print("  The suite is still green, but nothing here demonstrates a fix.")
         print("  This is NOT reported as solved (rules.md §0).")
+
+    # Repo mode wrote events and a ledger but no results row, so `report` could
+    # not read a repo run at all and there was no table across repairs.
+    results = run_dir / "results.csv"
+    with results.open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=RESULT_FIELDS)
+        writer.writeheader()
+        writer.writerow(result_row(row))
 
     if args.branch or args.push or args.pr:
         if verdict == "fail":
