@@ -208,3 +208,29 @@ def scout_found_it(run_dir, task_id: str, path: str) -> bool | None:
         return None
     files = set(re.findall(r"^--- (\S+) \(lines", pack.read_text(encoding="utf-8"), re.M))
     return path in files
+
+
+def restored_original(run_dir, task_id: str, before: str, after: str) -> bool | None:
+    """Did the patch put the broken line back, or just quiet the tests?
+
+    "Solved" means the suite went green, and that is not the same as repairing
+    the mutation. On the first real mutant run one task went green by leaving
+    the inverted condition exactly where it was and reimplementing the feature
+    nine lines further down -- two implementations of one behaviour, one of
+    them still broken, and the reviewer accepted it on the first attempt.
+
+    Nobody would have known: the score said 7/9. It said 6/9 only because the
+    original line was kept and someone went looking. Nothing that matters
+    should depend on someone going looking, so it is reported alongside.
+
+    None when there is no patch on disk to inspect.
+    """
+    patches = sorted(Path(run_dir).glob(f"tasks/{task_id}/attempts/*/patch.diff"))
+    if not patches:
+        return None
+    diff = patches[-1].read_text(encoding="utf-8")
+    added = [l[1:].strip() for l in diff.splitlines()
+             if l.startswith("+") and not l.startswith("+++")]
+    removed = [l[1:].strip() for l in diff.splitlines()
+               if l.startswith("-") and not l.startswith("---")]
+    return before.strip() in added and after.strip() in removed

@@ -721,7 +721,8 @@ def cmd_run_mutants(args: argparse.Namespace) -> int:
 
     from engine.batch import run_spend_usd
     from engine.graph import WORKSPACES
-    from engine.eval.mutant_bench import load, mutant_grader, scout_found_it
+    from engine.eval.mutant_bench import (load, mutant_grader, restored_original,
+                                          scout_found_it)
     from engine.eval.repo_grader import CachedImage
     from engine.repo.front_door import open_repo
 
@@ -745,6 +746,9 @@ def cmd_run_mutants(args: argparse.Namespace) -> int:
         scout=not args.no_scout,
         reviewer_gate=not args.no_reviewer_gate,
         prompt_hashes=prompt_hashes(PROMPTS),
+        **({"effort": args.effort, "reasoning_effort": args.effort}
+           if args.effort else {}),
+        **({"max_completion_tokens": args.max_tokens} if args.max_tokens else {}),
     )
     cfg.freeze_to(run_dir / "config.json")
     events = EventLog.for_run(run_dir, run_id)
@@ -796,6 +800,10 @@ def cmd_run_mutants(args: argparse.Namespace) -> int:
                 "attempts": row.get("attempts"),
                 # measured, not inferred: we know exactly which file we broke
                 "scout_found_file": scout_found_it(run_dir, mt.mid, mt.path),
+                # green tests are not the same as a repair -- see
+                # restored_original's docstring for the case that proved it
+                "restored_line": restored_original(run_dir, mt.mid,
+                                                   mt.before, mt.after),
             })
     finally:
         cache.close()
@@ -811,10 +819,17 @@ def cmd_run_mutants(args: argparse.Namespace) -> int:
             w.writerows(extra)
 
     solved = sum(1 for e in extra if e["solved"])
+    real = sum(1 for e in extra if e["solved"] and e["restored_line"])
     spent = run_spend_usd([run_dir])
     print("\n" + "=" * 68)
-    print(f"{solved}/{len(extra)} mutants repaired"
-          f"   ${spent:.2f}   run={run_id}")
+    print(f"tests green        {solved}/{len(extra)}")
+    print(f"line restored      {real}/{len(extra)}   <- the honest score")
+    if solved != real:
+        print(f"  {solved - real} went green WITHOUT repairing the broken line:")
+        for e in extra:
+            if e["solved"] and not e["restored_line"]:
+                print(f"    {e['mid']}  ({e['path']}:{e['line']})")
+    print(f"${spent:.2f}   run={run_id}")
     seen = [e for e in extra if e["scout_found_file"] is not None]
     if seen:
         hit = [e for e in seen if e["scout_found_file"]]
@@ -961,6 +976,12 @@ def main(argv: list[str] | None = None) -> int:
     rm.add_argument("--max-attempts", type=int, default=None)
     rm.add_argument("--max-usd", type=float, default=5.0,
                     help="hard ceiling for the whole set (default: $5)")
+    rm.add_argument("--effort", default=None,
+                    help="reasoning effort: low | medium | high. The default is "
+                         "tuned for hard SWE-bench tasks and spends ~26k output "
+                         "tokens on a one-line bug.")
+    rm.add_argument("--max-tokens", type=int, default=None,
+                    help="max_completion_tokens for this run")
     rm.add_argument("--no-scout", action="store_true", help="the OFF arm of E2")
     rm.add_argument("--no-reviewer-gate", action="store_true", help="the OFF arm of E3")
     rm.add_argument("--stub-failures", default="")
