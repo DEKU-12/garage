@@ -75,3 +75,19 @@ def test_the_mutant_budget_is_read_from_the_ledger_not_the_result_rows(tmp_path)
         w.writerow(["t", "1", "builder", "m", "10", "10", "0.75", "True", "1"])
         w.writerow(["t", "2", "builder", "m", "10", "10", "0.60", "True", "1"])
     assert abs(run_spend_usd([d]) - 1.35) < 1e-9
+
+
+def test_the_token_ceiling_is_per_model_where_the_limit_is_per_model():
+    """Groq's wall differs by model: gpt-oss-* is 8k tokens/minute, the
+    compound models are 70k. Applying the gpt-oss figure to compound refused
+    every request before sending it -- a 6.9k prompt left 697 tokens for the
+    answer, below the 1500 floor, so E3 could not start at all."""
+    from engine.agents.base import CEILINGS, ceiling_for
+
+    assert ceiling_for("openai/gpt-oss-20b", "groq", 8000) == CEILINGS["groq"]
+    assert ceiling_for("groq/compound-mini", "groq", 8000) > CEILINGS["groq"]
+    # never the whole minute's allowance in one request
+    assert ceiling_for("groq/compound-mini", "groq", 8000) <= 70_000 // 2
+    # unknown models still fall back to the provider's figure
+    assert ceiling_for("groq/something-new", "groq", 8000) == CEILINGS["groq"]
+    assert ceiling_for("claude-sonnet-5", "anthropic", 8000) == CEILINGS["anthropic"]

@@ -34,6 +34,21 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 # squeeze a single request that hard. Keeping both keeps E4's bake-off runnable
 # across providers without editing code between arms.
 CEILINGS = {"groq": 8_000, "anthropic": 200_000}
+
+# ...but Groq's wall is per MODEL, not per provider. gpt-oss-* really is
+# 8k tokens/minute; the compound models are 70k. Applying the gpt-oss figure
+# to compound refused every request before it was sent: a 6.9k-token prompt
+# left 697 tokens for the answer, under the 1500 floor. Held well below 70k so
+# a single request cannot eat the whole minute's allowance.
+MODEL_CEILINGS = {
+    "groq/compound": 30_000,
+    "groq/compound-mini": 30_000,
+}
+
+
+def ceiling_for(model: str, provider: str, default: int) -> int:
+    """The per-request token ceiling, most specific first."""
+    return MODEL_CEILINGS.get(model, CEILINGS.get(provider, default))
 # A timeout shorter than the model's longest generation is a BILLING bug, not
 # just a reliability one: the provider finishes and charges for work the client
 # abandoned, then charges again for the retry. Observed on E1 -- a 237s call
@@ -235,7 +250,7 @@ def call_model(
     # before the model reads a word. Shrink the reservation to whatever room
     # the prompt left rather than sending a request we know will be refused.
     provider = provider_of(model)
-    ceiling = CEILINGS.get(provider, cfg.request_token_ceiling)
+    ceiling = ceiling_for(model, provider, cfg.request_token_ceiling)
     prompt_estimate = sum(len(str(m.get("content", ""))) for m in messages) // 4
     room = ceiling - prompt_estimate - cfg.request_token_margin
     max_completion = min(cfg.max_completion_tokens, room)
