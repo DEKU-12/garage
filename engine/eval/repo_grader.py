@@ -48,8 +48,11 @@ Emits: nothing directly -- the tester node emits around it.
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
+import tempfile
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
@@ -275,8 +278,34 @@ def suite_reported(output: str, suite: Suite) -> bool:
     return bool(_PYTEST_RAN.search(output))
 
 
+@contextmanager
+def staged(tree: Path):
+    """A hermetic copy of the checkout, with no `.git` pointing back at the host.
+
+    Attempts run in git WORKTREES, whose `.git` is a file containing an
+    absolute host path:
+
+        gitdir: /Users/.../workspaces/_bare/repo.git/worktrees/9
+
+    Mounted into a container that path does not exist, so anything shelling out
+    to git inside the checkout sees a dangling gitdir. A suite that finished in
+    13 seconds against a clean copy ran for 22 minutes against the worktree and
+    had to be killed.
+
+    Copying also makes the mount hermetic, which it never was: the container
+    could previously see a path leading back to the host's object store.
+    """
+    with tempfile.TemporaryDirectory(prefix="garage-stage-") as tmp:
+        dest = Path(tmp) / "repo"
+        shutil.copytree(tree, dest,
+                        ignore=shutil.ignore_patterns(".git", "__pycache__",
+                                                      ".pytest_cache", ".venv"))
+        yield dest
+
+
 def run_suite(tree: Path, suite: Suite, runner=docker_runner) -> SuiteRun:
-    code, out = runner(suite.image, tree, [*suite.setup, suite.command])
+    with staged(tree) as clean:
+        code, out = runner(suite.image, clean, [*suite.setup, suite.command])
     return SuiteRun(code, out, parse_failures(out, suite), suite_reported(out, suite))
 
 
