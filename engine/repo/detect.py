@@ -151,7 +151,17 @@ def detect_suite(tree: Path) -> Suite | None:
     py_marker = _has(tree, "pyproject.toml", "setup.py", "setup.cfg",
                      "requirements.txt", "pytest.ini", "tox.ini")
     if py_marker and _looks_like_python_tests(tree):
-        setup = [["python", "-m", "pip", "install", "--quiet", "--upgrade", "pip"]]
+        # git is not in the slim images, and a surprising number of suites
+        # shell out to it -- 40 of this project's own tests did, and the
+        # failure surfaces as a traceback inside subprocess rather than
+        # anything naming git. Best effort: a repo whose tests do not need it
+        # loses ~15s once per run, and one that does would otherwise look
+        # comprehensively broken.
+        setup = [
+            "apt-get update -qq && apt-get install -y -qq --no-install-recommends "
+            "git ca-certificates >/dev/null 2>&1 || true",
+            ["python", "-m", "pip", "install", "--quiet", "--upgrade", "pip"],
+        ]
         # Editable install first because it is what makes `import thepackage`
         # work; requirements as a fallback for repos that are not packages.
         if _has(tree, "pyproject.toml", "setup.py", "setup.cfg"):
