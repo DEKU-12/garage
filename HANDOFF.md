@@ -52,6 +52,7 @@ all three laws in `rules.md` §0, and `rules.md` §1–§6 in full.
 | 3 — event stream | ✅ | events.jsonl → FastAPI → live text feed |
 | 4 — the garage | ✅ | Pixi scene driven only by events |
 | 5 — replay scrubber | ✅ | tape, fold-to-any-moment, verdict notches, artifact panel |
+| 6 — repo front door | ✅ | **a real model repaired a real repo and opened a PR** |
 | 6 — repo front door | 🟡 | 3 verdicts proven vs real Docker; no real-model repair yet |
 | 6 — branch / PR creation | 🟡 | branch+commit tested; push/PR never executed |
 | experiments E2/E3/E4 | ❌ | caps now fixed and ready |
@@ -228,24 +229,21 @@ against ~420k needed).
 
 ## 8. What to do next
 
-**1. Prove repo mode on one real bug.** Everything is built (`run-repo`), the
-front door clones and detects for real, and the verdict logic is covered — but
-no end-to-end repair has run, the grader's Docker path has never executed, and
-no PR has been opened. Until that happens the honest description is "the
-mechanism exists", not "it works".
+**DONE 2026-08-20 — repo mode works end to end.** `run-repo` clones a URL,
+Scout finds the code, Claude writes a fix *and* a witness test, the grader
+proves that test fails before and passes after, and a human approves every
+write. First result: [DEKU-12/NL2SQL#2](https://github.com/DEKU-12/NL2SQL/pull/2)
+— verdict `pass`, 3 attempts, $0.12, ~7 minutes. The tests gate rejected
+attempt 2 and the retry recovered: the +15 mechanism working outside the
+benchmark for the first time.
 
-**2. Repo front door — remaining.** Clone any GitHub URL, detect the test command, build a
-work queue. **The hard problem:** an arbitrary repo ships no `fail_to_pass`
-list, so grade on *no regressions* + a *witness test* the agent writes that
-fails before and passes after. No witness test → report **unverified**, never
-as a fix.
+Dependencies are installed once per run and cached, so grades after the first
+take ~3 seconds rather than ~6 minutes.
 
-**3. Branch + PR creation.** Never touch `main`.
-
-**4. Experiments.** E2 (scout), E3 (ponytail — the publishable one, needs
+**1. Experiments.** E2 (scout), E3 (ponytail — the publishable one, needs
 `--no-reviewer-gate`), E4 (bake-off, needs Groq + Claude both wired — they are).
 
-**5. Extra blueprint agents** — Debugger, Optimizer, Security. Each gets a
+**2. Extra blueprint agents** — Debugger, Optimizer, Security. Each gets a
 benchmark number before shipping into repo mode.
 
 ---
