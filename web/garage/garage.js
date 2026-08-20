@@ -25,11 +25,15 @@ const T = {                                   // DESIGN §2.1 -- dark & cosy
   concreteLift:0x7D6A54, tanDark:0x8E7F62, shadow:0x140F0E,
 };
 const W = 960, H = 540, TILE = 32;            // §4.1 logical stage
-const WALK_SPEED = 300;                       // px/s  §4.3. The longest walk is
-const CAR_SPEED = 210;                        // ~510px; replay fires events far
-                                              // faster than a live run, and a walk
-                                              // that cannot finish reads as nobody
-                                              // ever leaving the couch.
+const WALK_SPEED = 100;                       // px/s -- deliberately a stroll.
+const CAR_SPEED = 130;
+/* The speed was 300 to make sure a walk could finish before the next event
+ * landed. That was treating a symptom: the real problem was that a mechanic
+ * who had finished got cancelled by the next stage's start, so no speed would
+ * have helped. With the dwell measured from arrival and finished mechanics
+ * left alone to walk back, the walk no longer has to race anything -- so it
+ * can be slow enough to actually watch. The longest crossing (the whiteboard
+ * to the car, 220px) now takes about 2.2 seconds. */
 const ARC_MS = 400, STAMP_MS = 600, MICRO_MS = 120;
 
 /* A mechanic stays at the car for at least this long, even when the backend
@@ -38,7 +42,7 @@ const ARC_MS = 400, STAMP_MS = 600, MICRO_MS = 120;
  * Without it Dholu darts at the car and turns around mid-step, nine times a
  * run. Same principle as the test gauge's 600ms floor (DESIGN §4.4):
  * legibility beats literal timing, as long as nothing is invented. */
-const MIN_WORK_MS = 700;
+const MIN_WORK_MS = 1100;
 
 /* Dead air. A real night is mostly waiting: a 38-second Docker grade, or
  * hours between tasks. At 1x those gaps play in full and there is nothing to

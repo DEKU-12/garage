@@ -197,9 +197,12 @@ scenery.
 - Name tags: 12px Silkscreen, `--paper-dim`, shown always (interviewers won't
   guess who's who).
 - States: `idle` (**at their own workstation**, slow breath) → `walking`
-  (bob cycle along waypoints, 300 px/s) → `working` (faster bob at the car bay
-  + `--work` under-glow and popup) → `handoff` (paper sprite arcs
-  station-to-station, 400ms, slight overshoot).
+  (bob cycle along waypoints, **100 px/s — a stroll, not a scurry**) →
+  `working` (faster bob at the car bay + `--work` under-glow and popup) →
+  `handoff` (paper sprite arcs station-to-station, 400ms, slight overshoot).
+- The walk does not have to race the event stream. A mechanic who has finished
+  keeps their bay until the dwell is up, so a slow walk costs nothing but time
+  on screen. The longest crossing is ~2.2s and the full round trip ~5.5s.
 
 ### 4.4 Event → scene mapping (the contract with `events.jsonl`)
 
