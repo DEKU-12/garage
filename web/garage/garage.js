@@ -1168,15 +1168,17 @@ async function boot() {
   app.ticker.add(tickPlayback);
 
   const sel = $("runs");
-  const mock = document.createElement("option");
-  mock.value = "mock"; mock.textContent = "mock feed · no backend";
-  sel.appendChild(mock);
 
-  // The run list is a nicety, not a dependency: with no server at all the
-  // mock feed still runs, which is what makes the garage buildable on its own.
+  // Real runs first, so the default is real data. The mock used to be first
+  // and therefore selected at boot, which meant starting the server to look at
+  // a run and being shown invented events instead -- backwards.
+  //
+  // The run list is a nicety, not a dependency: with no server at all the mock
+  // still runs, which is what makes the garage buildable on its own.
+  let live = [];
   try {
-    const runs = await (await fetch("/api/runs")).json();
-    runs.forEach(r => {
+    live = await (await fetch("/api/runs")).json();
+    live.forEach(r => {
       const o = document.createElement("option");
       o.value = r.run_id;
       o.textContent = `${r.run_id} · ${r.events} events` +
@@ -1184,6 +1186,13 @@ async function boot() {
       sel.appendChild(o);
     });
   } catch { /* no server: mock only */ }
+
+  const mock = document.createElement("option");
+  mock.value = "mock";
+  mock.textContent = live.length ? "mock feed · no backend"
+                                 : "mock feed · no backend (no runs found)";
+  sel.appendChild(mock);
+  if (!live.length) sel.value = "mock";
 
   const open = v => v === "mock" ? openSource("mock") : openSource("live", v);
   sel.onchange = () => open(sel.value);
