@@ -25,8 +25,8 @@ const T = {                                   // DESIGN §2.1 -- dark & cosy
   concreteLift:0x7D6A54, tanDark:0x8E7F62, shadow:0x140F0E,
 };
 const W = 960, H = 540, TILE = 32;            // §4.1 logical stage
-const WALK_SPEED = 100;                       // px/s -- deliberately a stroll.
-const CAR_SPEED = 130;
+let WALK_SPEED = 70;                          // px/s -- deliberately a stroll.
+let CAR_SPEED = 95;
 /* The speed was 300 to make sure a walk could finish before the next event
  * landed. That was treating a symptom: the real problem was that a mechanic
  * who had finished got cancelled by the next stage's start, so no speed would
@@ -42,7 +42,7 @@ const ARC_MS = 400, STAMP_MS = 600, MICRO_MS = 120;
  * Without it Dholu darts at the car and turns around mid-step, nine times a
  * run. Same principle as the test gauge's 600ms floor (DESIGN §4.4):
  * legibility beats literal timing, as long as nothing is invented. */
-const MIN_WORK_MS = 1100;
+let MIN_WORK_MS = 1400;
 
 /* Dead air. A real night is mostly waiting: a 38-second Docker grade, or
  * hours between tasks. At 1x those gaps play in full and there is nothing to
@@ -1151,6 +1151,21 @@ function wireTransport() {
     };
   });
   $("artclose").onclick = () => $("art").classList.remove("open");
+
+  /* How fast the crew move. Nothing about the log changes -- this is purely
+   * how long the same events take to act out, so it can be turned down until
+   * a stage is comfortable to follow without making the run any less true. */
+  const PACE = {
+    amble: { walk: 45,  car: 65,  dwell: 2200 },
+    slow:  { walk: 70,  car: 95,  dwell: 1400 },
+    brisk: { walk: 130, car: 160, dwell: 900 },
+  };
+  const pace = $("pace");
+  pace.onchange = () => {
+    const p = PACE[pace.value] || PACE.slow;
+    WALK_SPEED = p.walk; CAR_SPEED = p.car; MIN_WORK_MS = p.dwell;
+  };
+  pace.value = "slow";
   const gapBtn = $("gaps");
   const paintGaps = () => {
     gapBtn.classList.toggle("on", skipGaps);
